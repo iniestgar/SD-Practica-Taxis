@@ -25,11 +25,11 @@ class Mapa:
         self.clientes = {}
 
     def dibujar_cuadricula(self):
-        """Dibuja la cuadrícula del mapa."""
+        """Dibuja la cuadrícula del mapa empezando en (1,1) y terminando en (20,20)."""
         self.screen.fill(BLACK)
-        for x in range(0, WIDTH, CELL_SIZE):
+        for x in range(CELL_SIZE, WIDTH + CELL_SIZE, CELL_SIZE):
             pygame.draw.line(self.screen, WHITE, (x, 0), (x, HEIGHT))
-        for y in range(0, HEIGHT, CELL_SIZE):
+        for y in range(CELL_SIZE, HEIGHT + CELL_SIZE, CELL_SIZE):
             pygame.draw.line(self.screen, WHITE, (0, y), (WIDTH, y))
 
     def agregar_taxi(self, id_taxi, x, y):
@@ -43,7 +43,9 @@ class Mapa:
 
     def agregar_destino(self, letra, x, y):
         """Agrega un destino al mapa."""
-        self.destinos[letra] = (x, y)
+        if (x, y) not in self.destinos:
+            self.destinos[(x, y)] = []
+        self.destinos[(x, y)].append(letra)
 
     def agregar_cliente(self, id_cliente, x, y):
         """Agrega o actualiza la posición de un cliente."""
@@ -55,26 +57,26 @@ class Mapa:
 
         # Dibujar taxis
         for id_taxi, (x, y) in self.taxis.items():
-            pygame.draw.rect(self.screen, GREEN, (x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE))
+            pygame.draw.rect(self.screen, GREEN, ((x-1) * CELL_SIZE, (y-1) * CELL_SIZE, CELL_SIZE, CELL_SIZE))
             font = pygame.font.SysFont(None, 24)
             # Mostrar solo las dos primeras letras del ID del taxi
             text = font.render(id_taxi[:2], True, BLACK)
-            self.screen.blit(text, (x * CELL_SIZE + CELL_SIZE // 4, y * CELL_SIZE + CELL_SIZE // 4))
+            self.screen.blit(text, ((x-1) * CELL_SIZE + CELL_SIZE // 4, (y-1) * CELL_SIZE + CELL_SIZE // 4))
 
         # Dibujar destinos
-        for letra, (x, y) in self.destinos.items():
-            pygame.draw.rect(self.screen, YELLOW, (x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE))
+        for (x, y), letras in self.destinos.items():
+            pygame.draw.rect(self.screen, YELLOW, ((x-1) * CELL_SIZE, (y-1) * CELL_SIZE, CELL_SIZE, CELL_SIZE))
             font = pygame.font.SysFont(None, 24)
-            text = font.render(letra, True, BLACK)
-            self.screen.blit(text, (x * CELL_SIZE + CELL_SIZE // 4, y * CELL_SIZE + CELL_SIZE // 4))
+            text = font.render(','.join(letras), True, BLACK)
+            self.screen.blit(text, ((x-1) * CELL_SIZE + CELL_SIZE // 4, (y-1) * CELL_SIZE + CELL_SIZE // 4))
 
         # Dibujar clientes
         for id_cliente, (x, y) in self.clientes.items():
-            pygame.draw.rect(self.screen, BLUE, (x * CELL_SIZE, y * CELL_SIZE, CELL_SIZE, CELL_SIZE))
+            pygame.draw.rect(self.screen, BLUE, ((x-1) * CELL_SIZE, (y-1) * CELL_SIZE, CELL_SIZE, CELL_SIZE))
             font = pygame.font.SysFont(None, 24)
             # Mostrar solo las dos primeras letras del ID del cliente
             text = font.render(id_cliente[:2], True, BLACK)
-            self.screen.blit(text, (x * CELL_SIZE + CELL_SIZE // 4, y * CELL_SIZE + CELL_SIZE // 4))
+            self.screen.blit(text, ((x-1) * CELL_SIZE + CELL_SIZE // 4, (y-1) * CELL_SIZE + CELL_SIZE // 4))
 
         pygame.display.update()
 
@@ -90,4 +92,3 @@ class Mapa:
             time.sleep(1)  # Redibujar el mapa cada segundo
 
         pygame.quit()
-

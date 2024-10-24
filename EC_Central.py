@@ -6,6 +6,7 @@ from kafka import KafkaProducer, KafkaConsumer
 import sys
 import time
 from interfaz import Mapa  # Importamos la clase Mapa desde el archivo de la interfaz
+import json
 
 
 class EC_Central:
@@ -156,15 +157,18 @@ class EC_Central:
             if cambio_detectado:
                 self.estados_taxis[id_taxi] = (ocupado, incidencia, coordenada_x, coordenada_y)
 
-    def asignar_taxi(self, id_cliente, coordenada_cliente, destino_cliente):
-        """Asigna un taxi disponible para el cliente y convierte el destino a coordenadas."""
-        # Convertir el destino de letra a coordenadas reales
-        if destino_cliente in self.localizaciones:
-            coordenada_destino = self.localizaciones[destino_cliente]  # Obtener las coordenadas del destino
-        else:
-            print(f"Destino {destino_cliente} no encontrado en las localizaciones.")
-            return
+    def asignar_taxi(self, id_cliente, coordenada_cliente, destinos):
+        """Asigna un taxi disponible para el cliente y convierte la lista de destinos a coordenadas."""
+        # Convertir la lista de destinos (letras) a coordenadas reales
+        destinos_coordenadas = []
+        for destino in destinos:
+            if destino in self.localizaciones:
+                destinos_coordenadas.append(self.localizaciones[destino])
+            else:
+                print(f"Destino {destino} no encontrado en las localizaciones.")
+                return
 
+        # Asignar un taxi
         for id_taxi, estado in self.estados_taxis.items():
             ocupado, incidencia, _, _ = estado
             if not ocupado:
@@ -172,12 +176,13 @@ class EC_Central:
                 print(f"Taxi {id_taxi} asignado al cliente {id_cliente}.")
                 self.mapa.agregar_cliente(id_cliente, coordenada_cliente[0], coordenada_cliente[1])  # Agregar cliente al mapa
 
-                # Generar el mensaje de asignación
-                mensaje_asignacion = (
-                    f"Taxi: {id_taxi} Cliente: {id_cliente} "
-                    f"PosicionCliente: ({coordenada_cliente[0]},{coordenada_cliente[1]}) "
-                    f"Destino: ({coordenada_destino[0]},{coordenada_destino[1]})"
-                )
+                # Generar el mensaje de asignación con múltiples destinos
+                mensaje_asignacion = json.dumps({
+                    "Taxi": id_taxi,
+                    "Cliente": id_cliente,
+                    "PosicionCliente": coordenada_cliente,
+                    "Destinos": destinos_coordenadas
+                })
 
                 # Enviar mensaje al topic de Kafka
                 self.producer.send('asignacionCliente', mensaje_asignacion.encode('utf-8'))
@@ -189,24 +194,26 @@ class EC_Central:
 
         print(f"No hay taxis disponibles para el cliente {id_cliente}.")
 
+
+
     def procesar_solicitud_cliente(self, mensaje_cliente):
         """Procesa el mensaje del cliente y asigna un taxi."""
-        # El mensaje del cliente tendrá el formato "ID Cliente Posicion: (x, y) Destino: D"
-        partes = mensaje_cliente.split()
-        
-        # Extraer los valores
-        id_cliente = partes[0]  # ID del cliente
-        
-        # Extracción correcta de las coordenadas del cliente
-        coordenada_cliente = partes[2].strip('(),')
-        coordenada_x, coordenada_y = map(int, coordenada_cliente.split(','))
+        # El mensaje del cliente tendrá el formato JSON con ID, coordenadas y lista de destinos
+        try:
+            data = json.loads(mensaje_cliente)
+            id_cliente = data['id_cliente']
+            coordenada_cliente = (data['posicion']['x'], data['posicion']['y'])
+            destinos = data['destinos']  # Lista de destinos (letras)
+            
+            print(f"Solicitud recibida del cliente {id_cliente}, coordenadas: {coordenada_cliente}, destinos: {destinos}")
+            
+            # Asignar taxi y pasarle la lista de destinos
+            self.asignar_taxi(id_cliente, coordenada_cliente, destinos)
+            
+        except json.JSONDecodeError as e:
+            print(f"Error al decodificar JSON: {e}")
 
-        destino_cliente = partes[-1]  # Destino en formato letra (A, B, etc.)
 
-        print(f"Solicitud recibida del cliente {id_cliente}, coordenadas: {coordenada_x},{coordenada_y}, destino: {destino_cliente}")
-        
-        # Asignar taxi y convertir el destino en coordenadas
-        self.asignar_taxi(id_cliente, (coordenada_x, coordenada_y), destino_cliente)
 
     def iniciar_consumidor_kafka_taxis(self, tema='solicitud'):
         """Inicia un consumidor de Kafka para recibir el estado de los taxis."""
