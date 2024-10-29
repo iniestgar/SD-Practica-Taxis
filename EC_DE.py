@@ -75,6 +75,8 @@ class EC_DE:
             self.autenticado = True  # Solo ahora puede enviar mensajes a la central
             print(f"ID {self.id_taxi}")
             self.iniciar_envio_estado_periodico()
+        else:
+            print("Error en la autenticacion")
 
     def iniciar_envio_estado_periodico(self):
         """Envía el estado del taxi a Kafka cada segundo."""
@@ -98,30 +100,38 @@ class EC_DE:
 
     def escuchar_senales(self):
         """El taxi escucha continuamente las señales del sensor."""
-        servidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        servidor.bind(("0.0.0.0", self.puerto_local))
-        servidor.listen(5)
-
         while self.taxi_activo:
-            conexion, direccion = servidor.accept()
+            try: 
+                servidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+                servidor.settimeout(5)
+                servidor.bind(("0.0.0.0", self.puerto_local))
+                servidor.listen(5)
 
-            # Recibir la señal del sensor
-            senal = conexion.recv(1024).decode()
+            
+                conexion, direccion = servidor.accept()
+                
+                print(f"Acepta conexion desde:{direccion}")
+                # Recibir la señal del sensor
+                senal = conexion.recv(1024).decode()
 
-            if senal == "1":
-                # Señal de anomalía: Incidencia detectada (semaforo, peaton, etc.)
+                if senal == "1":
+                    # Señal de anomalía: Incidencia detectada (semaforo, peaton, etc.)
+                    self.incidencia = True
+                    self.enviar_estado_kafka()
+
+                elif senal == "0":
+                    # Señal de normalidad: No hay incidencias
+                    self.incidencia = False
+                    self.enviar_estado_kafka()
+                conexion.close()
+            except socket.timeout:
                 self.incidencia = True
+                print(f"No recibe señal")
                 self.enviar_estado_kafka()
-
-            elif senal == "0":
-                # Señal de normalidad: No hay incidencias
-                self.incidencia = False
-                self.enviar_estado_kafka()
-
-            conexion.close()
-
-    import json
-
+            
+            time.sleep(1)
+            
+                
     def escuchar_asignacion_cliente(self, tema='asignacionCliente'):
         """Escucha el topic de Kafka para recibir asignaciones de clientes."""
         consumer = KafkaConsumer(tema, bootstrap_servers=f'{self.ip_kafka}:{self.puerto_kafka}', auto_offset_reset='latest')
