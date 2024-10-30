@@ -27,25 +27,33 @@ class EC_Central:
         # Iniciar hilo para imprimir el estado de los taxis cada 10 segundos
         threading.Thread(target=self.imprimir_estado_periodico, daemon=True).start()
 
+
     def leer_fichero_localizaciones(self, fichero):
-        """Lee el archivo de localizaciones e inicializa la estructura de datos."""
+        """Lee el archivo JSON de localizaciones e inicializa la estructura de datos."""
         try:
+            import json
             with open(fichero, 'r') as file:
-                for linea in file:
-                    partes = linea.strip().split()
-                    if len(partes) == 3:
-                        id_localizacion = partes[0]
-                        try:
-                            cx = int(partes[1])
-                            cy = int(partes[2])
-                            self.localizaciones[id_localizacion] = (cx, cy)
-                            self.mapa.agregar_destino(id_localizacion, cx, cy)  # Agregar destino al mapa
-                        except ValueError:
-                            print(f"Error: Coordenadas no son números enteros en la línea: {linea}")
-                    else:
-                        print(f"Error: Formato de línea incorrecto: {linea}")
+                data = json.load(file)
+                
+                # Iterar sobre las localizaciones en el JSON
+                for location in data['locations']:
+                    id_localizacion = location['Id']
+                    # Separar las coordenadas que vienen como "x,y"
+                    coordenadas = location['POS'].split(',')
+                    try:
+                        cx = int(coordenadas[0])
+                        cy = int(coordenadas[1])
+                        self.localizaciones[id_localizacion] = (cx, cy)
+                        self.mapa.agregar_destino(id_localizacion, cx, cy)  # Agregar destino al mapa
+                    except (ValueError, IndexError) as e:
+                        print(f"Error: Formato de coordenadas inválido para la localización {id_localizacion}: {e}")
+                    
         except FileNotFoundError:
             print(f"Error: El fichero '{fichero}' no se encuentra.")
+        except json.JSONDecodeError as e:
+            print(f"Error: El fichero '{fichero}' no tiene un formato JSON válido: {e}")
+        except KeyError as e:
+            print(f"Error: El fichero JSON no tiene la estructura esperada: {e}")
 
     def mostrar_localizaciones(self):
         """Muestra todas las localizaciones almacenadas."""

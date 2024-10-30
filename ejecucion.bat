@@ -1,6 +1,6 @@
 @echo off
 echo Iniciando el servidor EC_Central...
-start cmd /k "python EC_Central.py 127.0.0.1 9090 localizaciones.txt 127.0.0.1 9092"
+start cmd /k "python EC_Central.py 127.0.0.1 9090 EC_locations/EC_locations.json 127.0.0.1 9092"
 timeout /t 8
 
 echo Iniciando el taxi EC_DE 1...
