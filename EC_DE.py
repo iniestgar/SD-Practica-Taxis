@@ -110,7 +110,6 @@ class EC_DE:
             
                 conexion, direccion = servidor.accept()
                 
-                print(f"Acepta conexion desde:{direccion}")
                 # Recibir la señal del sensor
                 senal = conexion.recv(1024).decode()
 

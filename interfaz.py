@@ -10,6 +10,7 @@ BLACK = (0, 0, 0)
 GREEN = (0, 255, 0)
 YELLOW = (255, 255, 0)
 BLUE = (0, 0, 255)
+RED = (255, 0, 0)
 
 # Clase Mapa para manejar la visualización con Pygame
 class Mapa:
@@ -32,9 +33,9 @@ class Mapa:
         for y in range(CELL_SIZE, HEIGHT + CELL_SIZE, CELL_SIZE):
             pygame.draw.line(self.screen, WHITE, (0, y), (WIDTH, y))
 
-    def agregar_taxi(self, id_taxi, x, y):
+    def agregar_taxi(self, id_taxi, x, y,incidencia=False):
         """Agrega o actualiza la posición de un taxi."""
-        self.taxis[id_taxi] = (x, y)
+        self.taxis[id_taxi] = ((x, y), incidencia)
 
     def remover_cliente(self, id_cliente):
         """Remueve un cliente del mapa."""
@@ -56,8 +57,12 @@ class Mapa:
         self.dibujar_cuadricula()
 
         # Dibujar taxis
-        for id_taxi, (x, y) in self.taxis.items():
-            pygame.draw.rect(self.screen, GREEN, ((x-1) * CELL_SIZE, (y-1) * CELL_SIZE, CELL_SIZE, CELL_SIZE))
+        for id_taxi, ((x, y), incidencia) in self.taxis.items():
+            color = GREEN
+            if incidencia:
+                color = RED
+
+            pygame.draw.rect(self.screen, color, ((x-1) * CELL_SIZE, (y-1) * CELL_SIZE, CELL_SIZE, CELL_SIZE))
             font = pygame.font.SysFont(None, 24)
             # Mostrar solo las dos primeras letras del ID del taxi
             text = font.render(id_taxi[:2], True, BLACK)

@@ -139,7 +139,7 @@ class EC_Central:
             # Si es la primera vez, registrar el estado y mostrarlo
             self.estados_taxis[id_taxi] = (ocupado, incidencia, coordenada_x, coordenada_y)
             print(f"Nuevo taxi conectado: {estado_taxi}")
-            self.mapa.agregar_taxi(id_taxi, coordenada_x, coordenada_y)  # Agregar taxi al mapa
+            self.mapa.agregar_taxi(id_taxi, coordenada_x, coordenada_y, False)  # Agregar taxi al mapa
         else:
             # Comparar con el estado anterior
             estado_anterior = self.estados_taxis[id_taxi]
@@ -148,12 +148,13 @@ class EC_Central:
             # Verificar si ha habido un cambio en las coordenadas
             if estado_anterior[2] != coordenada_x or estado_anterior[3] != coordenada_y:
                 print(f"Taxi {id_taxi} ha cambiado de posición a ({coordenada_x}, {coordenada_y})")
-                self.mapa.agregar_taxi(id_taxi, coordenada_x, coordenada_y)  # Actualizar posición del taxi en el mapa
+                self.mapa.agregar_taxi(id_taxi, coordenada_x, coordenada_y, False)  # Actualizar posición del taxi en el mapa
                 cambio_detectado = True
 
             # Verificar si ha ocurrido una incidencia
             if estado_anterior[1] != incidencia:
                 print(f"Taxi {id_taxi} ha reportado una incidencia: {incidencia}")
+                self.mapa.agregar_taxi(id_taxi, coordenada_x, coordenada_y, True)  # Agregar taxi al mapa
                 cambio_detectado = True
 
             # Verificar si el estado "ocupado" ha cambiado
