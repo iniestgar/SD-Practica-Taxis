@@ -167,9 +167,7 @@ class EC_DE:
                 print(f"Error al procesar el mensaje: {e}. Mensaje: {asignacion}")
 
 
-
     def realizar_viaje(self, coordenada_cliente, destinos):
-        """Simula el viaje del taxi hacia el cliente y luego hacia múltiples destinos."""
         try:
             # El taxi comienza un viaje, marcarlo como ocupado
             self.ocupado = True
@@ -186,7 +184,8 @@ class EC_DE:
             for destino in destinos:
                 destino_x, destino_y = destino
                 self.mover_hacia(destino_x, destino_y)
-                print(f"Taxi {self.id_taxi} ha llegado al destino en ({destino_x}, {destino_y}).")
+                if not self.incidencia:  # Solo se imprime el mensaje si no hay incidencia
+                    print(f"Taxi {self.id_taxi} ha llegado al destino en ({destino_x}, {destino_y}).")
 
             # Actualizar el estado a no ocupado inmediatamente después de finalizar todos los viajes
             self.ocupado = False
@@ -196,25 +195,33 @@ class EC_DE:
         except ValueError as e:
             print(f"Error al procesar las coordenadas: {e}")
 
-
     def mover_hacia(self, objetivo_x, objetivo_y):
         """Mueve el taxi hacia una coordenada en dos ejes, primero X luego Y."""
-        # Mientras el taxi tenga una incidencia, no se moverá
-        while self.incidencia:
-            print(f"Taxi {self.id_taxi} detenido por una incidencia. Esperando resolución...")
-            time.sleep(2)  # Pausa para no sobrecargar el CPU mientras espera la resolución
-
         # Mover en el eje X
-        while self.coordenada_x != objetivo_x and not self.incidencia:
+        while self.coordenada_x != objetivo_x:
+            # Mientras el taxi tenga una incidencia, no se moverá
+            if self.incidencia:
+                print(f"Taxi {self.id_taxi} detenido por una incidencia. Esperando resolución...")
+                while self.incidencia:
+                    time.sleep(1.5)  # Espera hasta que la incidencia sea resuelta
+            # Continuar movimiento si no hay incidencia
             self.coordenada_x += 1 if self.coordenada_x < objetivo_x else -1
             print(f"Taxi {self.id_taxi} moviéndose en X: {self.coordenada_x}")
-            time.sleep(1)
+            time.sleep(1.5)
 
         # Mover en el eje Y
-        while self.coordenada_y != objetivo_y and not self.incidencia:
+        while self.coordenada_y != objetivo_y:
+            if self.incidencia:
+                print(f"Taxi {self.id_taxi} detenido por una incidencia. Esperando resolución...")
+                while self.incidencia:
+                    time.sleep(1.5)  # Espera hasta que la incidencia sea resuelta
+            # Continuar movimiento si no hay incidencia
             self.coordenada_y += 1 if self.coordenada_y < objetivo_y else -1
             print(f"Taxi {self.id_taxi} moviéndose en Y: {self.coordenada_y}")
-            time.sleep(1)
+            time.sleep(1.5)
+
+        print(f"Taxi {self.id_taxi} ha llegado a la posición: ({self.coordenada_x}, {self.coordenada_y})")
+
 
 # Menú para el taxi
 def menu():

@@ -166,8 +166,8 @@ class EC_Central:
             if cambio_detectado:
                 self.estados_taxis[id_taxi] = (ocupado, incidencia, coordenada_x, coordenada_y)
 
-    def asignar_taxi(self, id_cliente, coordenada_cliente, destinos):
-        """Asigna un taxi disponible para el cliente y convierte la lista de destinos a coordenadas."""
+    def asignar_taxi(self, id_cliente, coordenada_cliente, destinos, reintentos=5, espera=3):
+        
         # Convertir la lista de destinos (letras) a coordenadas reales
         destinos_coordenadas = []
         for destino in destinos:
@@ -177,31 +177,41 @@ class EC_Central:
                 print(f"Destino {destino} no encontrado en las localizaciones.")
                 return
 
-        # Asignar un taxi
-        for id_taxi, estado in self.estados_taxis.items():
-            ocupado, incidencia, _, _ = estado
-            if not ocupado:
-                # Encontramos un taxi disponible
-                print(f"Taxi {id_taxi} asignado al cliente {id_cliente}.")
-                self.mapa.agregar_cliente(id_cliente, coordenada_cliente[0], coordenada_cliente[1])  # Agregar cliente al mapa
+        intentos = 0
+        taxi_asignado = False
+        self.mapa.agregar_cliente(id_cliente, coordenada_cliente[0], coordenada_cliente[1])  # Agregar cliente al mapa
+        while intentos < reintentos and not taxi_asignado:
+            for id_taxi, estado in self.estados_taxis.items():
+                ocupado, incidencia, _, _ = estado
+                if not ocupado:
+                    # Encontramos un taxi disponible
+                    print(f"Taxi {id_taxi} asignado al cliente {id_cliente}.")
+                    
 
-                # Generar el mensaje de asignación con múltiples destinos
-                mensaje_asignacion = json.dumps({
-                    "Taxi": id_taxi,
-                    "Cliente": id_cliente,
-                    "PosicionCliente": coordenada_cliente,
-                    "Destinos": destinos_coordenadas
-                })
+                    # Generar el mensaje de asignación con múltiples destinos
+                    mensaje_asignacion = json.dumps({
+                        "Taxi": id_taxi,
+                        "Cliente": id_cliente,
+                        "PosicionCliente": coordenada_cliente,
+                        "Destinos": destinos_coordenadas
+                    })
 
-                # Enviar mensaje al topic de Kafka
-                self.producer.send('asignacionCliente', mensaje_asignacion.encode('utf-8'))
-                self.producer.flush()
+                    # Enviar mensaje al topic de Kafka
+                    self.producer.send('asignacionCliente', mensaje_asignacion.encode('utf-8'))
+                    self.producer.flush()
 
-                # Actualizar el estado del taxi a ocupado
-                self.estados_taxis[id_taxi] = (True, incidencia, estado[2], estado[3])
-                return
+                    # Actualizar el estado del taxi a ocupado
+                    self.estados_taxis[id_taxi] = (True, incidencia, estado[2], estado[3])
+                    taxi_asignado = True
+                    break  # Salir del bucle si se asignó un taxi
 
-        print(f"No hay taxis disponibles para el cliente {id_cliente}.")
+            if not taxi_asignado:
+                print(f"No hay taxis disponibles para el cliente {id_cliente}. Reintentando en {espera} segundos...")
+                intentos += 1
+                time.sleep(espera)  # Esperar antes de intentar nuevamente
+
+        if not taxi_asignado:
+            print(f"No se pudo asignar un taxi al cliente {id_cliente} después de {reintentos} intentos.")
 
 
 
