@@ -1,0 +1,5 @@
+/__pycache__
+/node_modules
+GRANT
+localhost
+sd_db.sql
