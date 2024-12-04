@@ -7,6 +7,7 @@ import sys
 import time
 from interfaz import Mapa  # Importamos la clase Mapa desde el archivo de la interfaz
 import json
+import ssl
 
 
 class EC_Central:
@@ -82,12 +83,12 @@ class EC_Central:
             print("Error: El fichero de tokens no existe.")
             return False
 
-    def manejar_solicitud(self, conexion, direccion):
+    def manejar_solicitud(self, connstream, direccion):
         """Maneja la solicitud de alta y autenticación del taxi."""
         print(f"Conexión establecida desde {direccion}")
 
         # Recibir mensaje del taxi
-        mensaje = conexion.recv(1024).decode()
+        mensaje = connstream.recv(1024).decode()
 
         if mensaje == "ALTA":
             # Generar un token para el taxi
@@ -97,7 +98,7 @@ class EC_Central:
             self.escribir_token_en_fichero(token)
 
             # Enviar el token de vuelta al taxi
-            conexion.send(token.encode())
+            connstream.send(token.encode())
             print(f"Token {token} generado y enviado al taxi.")
 
         elif mensaje.startswith("AUTENTICAR"):
@@ -106,13 +107,14 @@ class EC_Central:
 
             # Verificar si el token está en el archivo de tokens
             if self.consultar_fichero_tokens(token):
-                conexion.send("Autenticado correctamente".encode())
+                connstream.send("Autenticado correctamente".encode())
                 print(f"Taxi con token {token} autenticado.")
             else:
-                conexion.send("Error: Token inválido".encode())
+                connstream.send("Error: Token inválido".encode())
                 print(f"Intento de autenticación fallido con token {token}.")
-
-        conexion.close()
+        
+        connstream.shutdown(socket.SHUT_RDWR)   
+        connstream.close()
 
     def procesar_estado_taxi(self, estado_taxi):
         """Procesa el estado recibido del taxi y convierte ocupado/incidencia a True/False."""
@@ -265,6 +267,12 @@ class EC_Central:
         hilo_kafka_clientes.start()
 
         # Iniciar el servidor de sockets para manejar las solicitudes de taxis
+        cert = 'certServ.pem'
+        context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        context.load_cert_chain(cert, cert)
+        #context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
+        #context.load_cert_chain(certfile="mycertfile", keyfile="mykeyfile")
+        
         servidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         servidor.bind((self.ip, self.puerto))
         servidor.listen(5)
@@ -272,7 +280,9 @@ class EC_Central:
 
         while True:
             conexion, direccion = servidor.accept()
-            hilo = threading.Thread(target=self.manejar_solicitud, args=(conexion, direccion))
+            connstream = context.wrap_socket(conexion, server_side=True)
+
+            hilo = threading.Thread(target=self.manejar_solicitud, args=(connstream, direccion))
             hilo.start()
 
     def imprimir_estado_periodico(self):

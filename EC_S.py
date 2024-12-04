@@ -41,6 +41,10 @@ class EC_S:
 
             except ConnectionRefusedError:
                 print(f"El taxi en {self.ip_taxi}:{self.puerto_taxi} no está disponible.")
+            except ConnectionResetError:
+                print(f"Conexión restablecida por el taxi en {self.ip_taxi}:{self.puerto_taxi}. Reintentando...")
+            except Exception as e:
+                print(f"Error en enviar_senal: {e}")
             finally:
                 cliente.close()
 

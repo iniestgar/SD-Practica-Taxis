@@ -5,20 +5,30 @@ import random
 import string
 import time
 import json
+import requests
+import urllib3
+import ssl
+
+# Deshabilitar las advertencias de certificados autofirmados (solo para desarrollo)
+urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 class EC_DE:
-    def __init__(self, ip_servidor, puerto_servidor, puerto_local, ip_kafka, puerto_kafka, auto_mode=False):
+    def __init__(self, ip_servidor, puerto_servidor, ip_registry, puerto_registry, puerto_local, ip_kafka, puerto_kafka, auto_mode=False):
+        # Atributos existentes
         self.ip_servidor = ip_servidor
         self.puerto_servidor = puerto_servidor
+        self.ip_registry = ip_registry  # Nuevo atributo
+        self.puerto_registry = puerto_registry  # Nuevo atributo
         self.puerto_local = puerto_local
         self.id_taxi = None
+        self.token = None
         self.taxi_activo = True
-        self.ocupado = False  # El taxi inicialmente no está ocupado (no está en un servicio)
-        self.incidencia = False  # No hay incidencias al inicio
-        self.coordenada_x = 1  # Coordenada inicial del taxi en x
-        self.coordenada_y = 1  # Coordenada inicial del taxi en y
-        self.autenticado = False  # Indica si el taxi ha sido autenticado con la central
-        self.auto_mode = auto_mode  # Activar o no el modo automático
+        self.ocupado = False
+        self.incidencia = False
+        self.coordenada_x = 1
+        self.coordenada_y = 1
+        self.autenticado = False
+        self.auto_mode = auto_mode
 
         # Guardar las IP y el puerto de Kafka
         self.ip_kafka = ip_kafka
@@ -35,40 +45,56 @@ class EC_DE:
             self.autenticar()
 
     def darse_de_alta(self):
-        """Conectar con EC_Central para darse de alta y recibir un token."""
+        """Conectar con EC_Registry para darse de alta y recibir un token."""
         if self.id_taxi is not None:
-            return  # Ya se ha dado de alta
+            print("Ya se ha dado de alta.")
+            return
 
-        cliente = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        cliente.connect((self.ip_servidor, self.puerto_servidor))
+        url = f'https://{self.ip_registry}:{self.puerto_registry}/taxis'
 
-        # Enviar mensaje de alta
-        cliente.send("ALTA".encode())
+        data = {
+            'nombre': input("Ingrese el nombre del taxi: "),
+            'ciudad': input("Ingrese la ciudad del taxi: ")
+        }
 
-        # Recibir el token de vuelta
-        token = cliente.recv(1024).decode()
+        try:
+            # Agregar verify=False aquí
+            response = requests.post(url, json=data, verify=False)
+            if response.status_code == 200:
+                respuesta = response.json()
+                self.id_taxi = respuesta['id_taxi']
+                self.token = respuesta['token']
+                print(f"Taxi registrado con ID: {self.id_taxi}")
+            else:
+                print(f"Error al registrar el taxi: {response.status_code} - {response.text}")
+        except requests.exceptions.RequestException as e:
+            print(f"Error de conexión con EC_Registry: {e}")
 
-        # Guardar el token como ID del taxi
-        self.id_taxi = token
 
-        cliente.close()
 
     def autenticar(self):
         """Autenticarse en EC_Central usando el token recibido."""
         if self.id_taxi is None:
             return  # No puede autenticarse sin estar dado de alta
-
-        cliente = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        cliente.connect((self.ip_servidor, self.puerto_servidor))
+        
+        context = ssl.create_default_context()
+        context.load_verify_locations('certServ.pem')
+        respuesta = ''
+        with socket.create_connection((self.ip_servidor, self.puerto_servidor)) as sock:
+            with context.wrap_socket(sock, self.ip_servidor) as ssock:
+                mensaje = f"AUTENTICAR {self.id_taxi}"
+                ssock.send(mensaje.encode())
+                respuesta = ssock.recv(1024).decode()
+        #cliente = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        #cliente.connect((self.ip_servidor, self.puerto_servidor))
 
         # Enviar el token para autenticarse
-        mensaje = f"AUTENTICAR {self.id_taxi}"
-        cliente.send(mensaje.encode())
+        
 
         # Recibir respuesta de autenticación
-        respuesta = cliente.recv(1024).decode()
+        #respuesta = cliente.recv(1024).decode()
 
-        cliente.close()
+        #cliente.close()
 
         # Verificar la autenticación
         if "Autenticado correctamente" in respuesta:
@@ -77,6 +103,76 @@ class EC_DE:
             self.iniciar_envio_estado_periodico()
         else:
             print("Error en la autenticacion")
+
+    def obtener_info_taxi(self):
+        if self.id_taxi is None:
+            print("No se ha registrado aún.")
+            return
+
+        url = f'https://{self.ip_registry}:{self.puerto_registry}/taxis/{self.id_taxi}'
+        cert_path = 'cert.pem'  # Si estás verificando el certificado
+
+        try:
+            response = requests.get(url, verify=False)  # O verify=cert_path
+            if response.status_code == 200:
+                taxi_info = response.json()
+                print("Información del taxi:", taxi_info)
+            else:
+                print(f"Error al obtener información del taxi: {response.status_code} - {response.text}")
+        except requests.exceptions.RequestException as e:
+            print(f"Error de conexión con EC_Registry: {e}")
+
+    def actualizar_info_taxi(self):
+        if self.id_taxi is None:
+            print("No se ha registrado aún.")
+            return
+
+        url = f'https://{self.ip_registry}:{self.puerto_registry}/taxis/{self.id_taxi}'
+        cert_path = 'cert.pem'  # Si estás verificando el certificado
+
+        nombre = input("Ingrese el nuevo nombre del taxi: ")
+        ciudad = input("Ingrese la nueva ciudad del taxi: ")
+
+        data = {
+            'nombre': nombre,
+            'ciudad': ciudad
+        }
+
+        try:
+            response = requests.put(url, json=data, verify=False)  # O verify=cert_path
+            if response.status_code == 200:
+                print("Información del taxi actualizada correctamente.")
+            else:
+                print(f"Error al actualizar información del taxi: {response.status_code} - {response.text}")
+        except requests.exceptions.RequestException as e:
+            print(f"Error de conexión con EC_Registry: {e}")
+
+    def eliminar_taxi(self):
+        if self.id_taxi is None:
+            print("No se ha registrado aún.")
+            return
+
+        url = f'https://{self.ip_registry}:{self.puerto_registry}/taxis/{self.id_taxi}'
+        cert_path = 'cert.pem'  # Si estás verificando el certificado
+
+        confirmacion = input("¿Estás seguro de que deseas eliminar este taxi del registro? (s/n): ")
+        if confirmacion.lower() != 's':
+            return
+
+        try:
+            response = requests.delete(url, verify=False)  # O verify=cert_path
+            if response.status_code == 200:
+                print("Taxi eliminado correctamente del registro.")
+                self.id_taxi = None
+                self.token = None
+                self.autenticado = False
+            else:
+                print(f"Error al eliminar el taxi: {response.status_code} - {response.text}")
+        except requests.exceptions.RequestException as e:
+            print(f"Error de conexión con EC_Registry: {e}")
+
+
+
 
     def iniciar_envio_estado_periodico(self):
         """Envía el estado del taxi a Kafka cada segundo."""
@@ -99,36 +195,51 @@ class EC_DE:
         self.producer.flush()  # Asegurar que el mensaje se envíe inmediatamente
 
     def escuchar_senales(self):
-        """El taxi escucha continuamente las señales del sensor."""
+        servidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        servidor.settimeout(5)
+        servidor.bind(("0.0.0.0", self.puerto_local))
+        servidor.listen(5)
+        # print(f"Taxi escuchando señales en el puerto {self.puerto_local}")
+
         while self.taxi_activo:
             try: 
-                servidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                servidor.settimeout(5)
-                servidor.bind(("0.0.0.0", self.puerto_local))
-                servidor.listen(5)
-
-            
                 conexion, direccion = servidor.accept()
-                
                 # Recibir la señal del sensor
                 senal = conexion.recv(1024).decode()
 
                 if senal == "1":
-                    # Señal de anomalía: Incidencia detectada (semaforo, peaton, etc.)
-                    self.incidencia = True
-                    self.enviar_estado_kafka()
-
+                    # Señal de anomalía: Incidencia detectada
+                    nuevo_estado = True
                 elif senal == "0":
                     # Señal de normalidad: No hay incidencias
-                    self.incidencia = False
+                    nuevo_estado = False
+                else:
+                    # Señal desconocida, mantener el estado actual
+                    nuevo_estado = self.incidencia
+
+                # Solo actualizar y mostrar mensaje si el estado cambia
+                if nuevo_estado != self.incidencia:
+                    self.incidencia = nuevo_estado
+                    if self.incidencia:
+                        print("Incidencia detectada por el sensor.")
+                    else:
+                        print("Incidencia resuelta.")
                     self.enviar_estado_kafka()
+                # Si el estado no cambia, no hacemos nada
                 conexion.close()
             except socket.timeout:
-                self.incidencia = True
-                print(f"No recibe señal")
-                self.enviar_estado_kafka()
-            
-            time.sleep(1)
+                # Si hay un timeout, asumimos que hay una incidencia
+                nuevo_estado = True
+                if nuevo_estado != self.incidencia:
+                    self.incidencia = nuevo_estado
+                    # Puedes descomentar el siguiente print si deseas
+                    # print("No se recibe señal del sensor. Marcando incidencia.")
+                    self.enviar_estado_kafka()
+                # Si el estado no cambia, no hacemos nada
+            except Exception as e:
+                print(f"Error en escuchar_senales: {e}")
+
+
             
                 
     def escuchar_asignacion_cliente(self, tema='asignacionCliente'):
@@ -226,27 +337,30 @@ class EC_DE:
 # Menú para el taxi
 def menu():
     import sys
-    if len(sys.argv) != 7:
-        print("Uso: python EC_DE.py <IP_Servidor> <Puerto_Servidor> <Puerto_Local> <IP_Kafka> <Puerto_Kafka> <auto|noauto>")
+    if len(sys.argv) != 9:
+        print("Uso: python EC_DE.py <IP_Central> <Puerto_Central> <IP_Registry> <Puerto_Registry> <Puerto_Local> <IP_Kafka> <Puerto_Kafka> <auto|noauto>")
         sys.exit(1)
 
     ip_servidor = sys.argv[1]
     puerto_servidor = int(sys.argv[2])
-    puerto_local = int(sys.argv[3])
-    ip_kafka = sys.argv[4]
-    puerto_kafka = sys.argv[5]
-    modo_auto = sys.argv[6].lower() == 'auto'  # Si el último parámetro es 'auto', activamos el modo automático
+    ip_registry = sys.argv[3]
+    puerto_registry = int(sys.argv[4])
+    puerto_local = int(sys.argv[5])
+    ip_kafka = sys.argv[6]
+    puerto_kafka = sys.argv[7]
+    modo_auto = sys.argv[8].lower() == 'auto'
 
-    # Inicializar el taxi antes de mostrar el menú
-    taxi = EC_DE(ip_servidor, puerto_servidor, puerto_local, ip_kafka, puerto_kafka, auto_mode=modo_auto)
+    taxi = EC_DE(ip_servidor, puerto_servidor, ip_registry, puerto_registry, puerto_local, ip_kafka, puerto_kafka, auto_mode=modo_auto)
 
-    # Si está en modo manual, mostrar el menú
     if not modo_auto:
         while True:
             print("\nMenú Taxi:")
             print("1. Darse de alta")
             print("2. Autenticarse")
-            print("3. Salir")
+            print("3. Obtener información del taxi")
+            print("4. Actualizar información del taxi")
+            print("5. Eliminar taxi del registro")
+            print("6. Salir")
             opcion = input("Elige una opción: ")
 
             if opcion == '1':
@@ -254,10 +368,17 @@ def menu():
             elif opcion == '2':
                 taxi.autenticar()
             elif opcion == '3':
+                taxi.obtener_info_taxi()
+            elif opcion == '4':
+                taxi.actualizar_info_taxi()
+            elif opcion == '5':
+                taxi.eliminar_taxi()
+            elif opcion == '6':
                 print("Saliendo...")
                 break
             else:
                 print("Opción no válida, intenta de nuevo.")
+
 
 # Ejecutar el menú del taxi
 if __name__ == "__main__":

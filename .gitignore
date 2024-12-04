@@ -1,5 +1,8 @@
-/__pycache__
-/node_modules
+__pycache__/
+node_modules/
 GRANT
 localhost
-sd_db.sql
+*.sql
+*.pem
+package-lock.json
+package.json
