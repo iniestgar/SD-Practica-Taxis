@@ -50,6 +50,7 @@ class EC_S:
 
             time.sleep(1)  # Enviar señal cada segundo
 
+
     def iniciar(self):
         """Inicia la detección de incidencias y el envío de señales."""
         hilo_teclado = threading.Thread(target=self.alternar_incidencia, daemon=True)

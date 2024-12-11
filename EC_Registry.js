@@ -5,14 +5,15 @@ const app = express();
 const https = require('https');
 const fs = require('fs');
 const mysql = require('mysql');
+const { v4: uuidv4 } = require('uuid'); // Para generar tokens únicos
 const cors = require('cors');
 
 // Configuración de la conexión a la base de datos MySQL
 const connection = mysql.createConnection({
-  host: '127.0.0.1',
+  host: 'localhost',
   user: 'root',
   password: '6633',
-  database: 'sd_bbdd',
+  database: 'SD_MYSQL',
 });
 
 // Conectar a la base de datos
@@ -29,34 +30,48 @@ app.use(express.json()); // Para parsear solicitudes con cuerpo en formato JSON
 app.use(cors()); // Para habilitar CORS si es necesario
 
 // Endpoint para registrar un nuevo taxi
+// Endpoint para registrar un nuevo taxi
 app.post('/taxis', (req, res) => {
-  // Generar un ID de taxi aleatorio (número y letra, e.g., '1a')
-  const randomNum = Math.floor(Math.random() * 100) + 1; // Número entre 1 y 100
-  const randomLetter = String.fromCharCode(97 + Math.floor(Math.random() * 26)); // Letra entre 'a' y 'z'
-  const taxiID = `${randomNum}${randomLetter}`;
+  const { id_taxi, nombre, ciudad } = req.body;
 
-  // Obtener datos adicionales del cuerpo de la solicitud
-  const { nombre, ciudad } = req.body;
+  if (!id_taxi) {
+    return res.status(400).json({ error: 'El id_taxi es requerido' });
+  }
 
-  // Crear objeto taxi
-  const taxiObj = {
-    id_taxi: taxiID,
-    nombre: nombre || null,
-    ciudad: ciudad || null,
-  };
-
-  // Insertar en la base de datos
-  const sql = 'INSERT INTO Taxis SET ?';
-  connection.query(sql, taxiObj, (error) => {
+  // Comprobar si el id_taxi ya existe
+  const checkSql = 'SELECT id_taxi FROM Taxis WHERE id_taxi = ?';
+  connection.query(checkSql, [id_taxi], (error, results) => {
     if (error) {
-      console.error('Error al registrar el taxi:', error);
-      res.status(500).json({ error: 'Error al registrar el taxi' });
-      return;
+      console.error('Error al comprobar el id_taxi:', error);
+      return res.status(500).json({ error: 'Error al comprobar el id_taxi' });
     }
-    // Devolver el ID y el token al cliente
-    res.json({ id_taxi: taxiID });
+
+    if (results.length > 0) {
+      // El id_taxi ya existe
+      return res.status(409).json({ error: 'El id_taxi ya está en uso' });
+    }
+
+    // Crear objeto taxi con token null
+    const taxiObj = {
+      id_taxi: id_taxi,
+      nombre: nombre || null,
+      ciudad: ciudad || null,
+      token: null, // Agregar esta línea
+    };
+
+    // Insertar en la base de datos
+    const sql = 'INSERT INTO Taxis SET ?';
+    connection.query(sql, taxiObj, (error) => {
+      if (error) {
+        console.error('Error al registrar el taxi:', error);
+        return res.status(500).json({ error: 'Error al registrar el taxi' });
+      }
+      // Devolver confirmación al cliente
+      res.status(201).json({ message: 'Taxi registrado correctamente', id_taxi: id_taxi });
+    });
   });
 });
+
 
 // Endpoint para obtener un taxi específico
 app.get('/taxis/:id_taxi', (req, res) => {
@@ -128,8 +143,8 @@ app.delete('/taxis/:id_taxi', (req, res) => {
 
 // Leer los certificados SSL
 const sslOptions = {
-  key: fs.readFileSync('certServ.pem'),
-  cert: fs.readFileSync('certServ.pem'),
+  key: fs.readFileSync('key.pem'),
+  cert: fs.readFileSync('cert.pem'),
 };
 
 // Iniciar el servidor HTTPS
