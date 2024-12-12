@@ -8,7 +8,7 @@ import time
 from interfaz import Mapa  # Importamos la clase Mapa desde el archivo de la interfaz
 import json
 import ssl
-
+import mysql.connector
 
 class EC_Central:
     def __init__(self, ip, puerto, fichero_localizaciones, ip_kafka, puerto_kafka):
@@ -66,10 +66,15 @@ class EC_Central:
         """Genera un token de autenticación de longitud 10."""
         return ''.join(random.choices(string.ascii_letters + string.digits, k=10))
 
-    def escribir_token_en_fichero(self, token):
-        """Escribe el token generado para un taxi en el archivo tokens.txt."""
-        with open(self.fichero_tokens, 'a') as file:
-            file.write(f"{token}\n")
+    def escribir_token_en_fichero(self, id_taxi, token):
+        """Escribe el token generado para un taxi en la base de datos."""
+        db = mysql.connector.connect(host="localhost", user="root", password="6633", db="sd_bbdd")
+        if db.is_connected():
+            cursor = db.cursor()
+            cursor.execute("INSERT INTO taxis (token) VALUES (%s) where taxi_id=%s",[token],[id_taxi])
+            
+        """with open(self.fichero_tokens, 'a') as file:
+            file.write(f"{token}\n")"""
 
     def consultar_fichero_tokens(self, token):
         """Consulta el archivo tokens.txt para verificar si el token existe."""
@@ -90,7 +95,7 @@ class EC_Central:
         # Recibir mensaje del taxi
         mensaje = connstream.recv(1024).decode()
 
-        if mensaje == "ALTA":
+        """if mensaje == "ALTA":
             # Generar un token para el taxi
             token = self.generar_token()
 
@@ -99,11 +104,17 @@ class EC_Central:
 
             # Enviar el token de vuelta al taxi
             connstream.send(token.encode())
-            print(f"Token {token} generado y enviado al taxi.")
+            print(f"Token {token} generado y enviado al taxi.")"""
 
-        elif mensaje.startswith("AUTENTICAR"):
+        if mensaje.startswith("AUTENTICAR"):
             # Extraer el token del mensaje
-            token = mensaje.split(" ")[1]
+            id_taxi = mensaje.split(" ")[1]
+
+            # Generar un token para el taxi
+            token = self.generar_token()
+
+            # Escribir el token en el archivo tokens.txt
+            self.escribir_token_en_fichero(id_taxi, token)
 
             # Verificar si el token está en el archivo de tokens
             if self.consultar_fichero_tokens(token):
@@ -256,6 +267,10 @@ class EC_Central:
             solicitud_cliente = mensaje.value.decode('utf-8')
             self.procesar_solicitud_cliente(solicitud_cliente)
 
+    #def peticion_desconexion():
+        #Enviara por kafka un mensaje con otro topic
+        
+
     def iniciar(self):
         """Inicia el servidor de sockets y los consumidores de Kafka en hilos separados."""
         # Iniciar el consumidor de Kafka para los taxis en un hilo separado
@@ -266,8 +281,12 @@ class EC_Central:
         hilo_kafka_clientes = threading.Thread(target=self.iniciar_consumidor_kafka_clientes, daemon=True)
         hilo_kafka_clientes.start()
 
+        # Cuando el usuario quiera debera escribir el id de un taxi para desconectarlo y que vuelva a su posicion original
+        """hilo_señal_desconectar_taxi = threading.Thread(target=self.peticion_desconexion, daemon=True)
+        hilo_señal_desconectar_taxi.start()"""
+
         # Iniciar el servidor de sockets para manejar las solicitudes de taxis
-        cert = 'certServ.pem'
+        cert = 'Certificado/certServ.pem'
         context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
         context.load_cert_chain(cert, cert)
         #context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)

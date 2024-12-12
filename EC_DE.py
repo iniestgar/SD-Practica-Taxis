@@ -8,6 +8,7 @@ import json
 import requests
 import urllib3
 import ssl
+import sys
 
 # Deshabilitar las advertencias de certificados autofirmados (solo para desarrollo)
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
@@ -63,7 +64,6 @@ class EC_DE:
             if response.status_code == 200:
                 respuesta = response.json()
                 self.id_taxi = respuesta['id_taxi']
-                self.token = respuesta['token']
                 print(f"Taxi registrado con ID: {self.id_taxi}")
             else:
                 print(f"Error al registrar el taxi: {response.status_code} - {response.text}")
@@ -77,14 +77,18 @@ class EC_DE:
         if self.id_taxi is None:
             return  # No puede autenticarse sin estar dado de alta
         
-        context = ssl.create_default_context()
-        context.load_verify_locations('certServ.pem')
         respuesta = ''
-        with socket.create_connection((self.ip_servidor, self.puerto_servidor)) as sock:
-            with context.wrap_socket(sock, self.ip_servidor) as ssock:
-                mensaje = f"AUTENTICAR {self.id_taxi}"
-                ssock.send(mensaje.encode())
-                respuesta = ssock.recv(1024).decode()
+        try:
+            context = ssl.create_default_context()
+            context.load_verify_locations('Certificado/certServ.pem')
+            
+            with socket.create_connection((self.ip_servidor, self.puerto_servidor)) as sock:
+                with context.wrap_socket(sock, server_hostname=self.ip_servidor) as ssock:
+                    mensaje = f"AUTENTICAR {self.id_taxi}"
+                    ssock.send(mensaje.encode())
+                    respuesta = ssock.recv(1024).decode()
+        except Exception as e:
+            print("Error al conectar:", e)
         #cliente = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         #cliente.connect((self.ip_servidor, self.puerto_servidor))
 
@@ -288,7 +292,11 @@ class EC_DE:
             cliente_x, cliente_y = map(int, coordenada_cliente.split(','))
 
             # Movimiento hacia el cliente
-            self.mover_hacia(cliente_x, cliente_y)
+            try:
+                self.mover_hacia(cliente_x, cliente_y)
+            except SystemExit as e:
+                print("El taxi esta inactivo: volviendo a la base")
+
             print(f"Taxi {self.id_taxi} ha recogido al cliente.")
 
             # Recorrer todos los destinos secuencialmente
@@ -315,6 +323,10 @@ class EC_DE:
                 print(f"Taxi {self.id_taxi} detenido por una incidencia. Esperando resolución...")
                 while self.incidencia:
                     time.sleep(1.5)  # Espera hasta que la incidencia sea resuelta
+            #Cuando la central manda desconectar a un taxi
+            if self.taxi_activo != True: 
+                print("Taxi sera desconectado")
+                sys.exit()
             # Continuar movimiento si no hay incidencia
             self.coordenada_x += 1 if self.coordenada_x < objetivo_x else -1
             print(f"Taxi {self.id_taxi} moviéndose en X: {self.coordenada_x}")
