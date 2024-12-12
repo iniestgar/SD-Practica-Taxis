@@ -41,6 +41,7 @@ app.post('/taxis', (req, res) => {
   // Crear objeto taxi
   const taxiObj = {
     id_taxi: taxiID,
+    token: null,
     nombre: nombre || null,
     ciudad: ciudad || null,
   };
@@ -53,7 +54,7 @@ app.post('/taxis', (req, res) => {
       res.status(500).json({ error: 'Error al registrar el taxi' });
       return;
     }
-    // Devolver el ID y el token al cliente
+    // Devolver el ID al cliente
     res.json({ id_taxi: taxiID });
   });
 });
@@ -128,8 +129,8 @@ app.delete('/taxis/:id_taxi', (req, res) => {
 
 // Leer los certificados SSL
 const sslOptions = {
-  key: fs.readFileSync('certServ.pem'),
-  cert: fs.readFileSync('certServ.pem'),
+  key: fs.readFileSync('Certificado/certServ.pem'),
+  cert: fs.readFileSync('Certificado/certServ.pem'),
 };
 
 // Iniciar el servidor HTTPS
