@@ -8,6 +8,7 @@ import json
 import requests
 import urllib3
 import ssl
+from cryptography.fernet import Fernet
 import sys
 
 # Deshabilitar las advertencias de certificados autofirmados (solo para desarrollo)
@@ -46,14 +47,18 @@ class EC_DE:
             self.autenticar()
 
     def darse_de_alta(self):
-        """Conectar con EC_Registry para darse de alta y recibir un token."""
+        """Conectar con EC_Registry para darse de alta y recibir confirmación."""
         if self.id_taxi is not None:
             print("Ya se ha dado de alta.")
             return
 
         url = f'https://{self.ip_registry}:{self.puerto_registry}/taxis'
 
+        # Solicitar el id_taxi al usuario
+        id_taxi = input("Ingrese el ID del taxi: ")
+
         data = {
+            'id_taxi': id_taxi,
             'nombre': input("Ingrese el nombre del taxi: "),
             'ciudad': input("Ingrese la ciudad del taxi: ")
         }
@@ -61,10 +66,11 @@ class EC_DE:
         try:
             # Agregar verify=False aquí
             response = requests.post(url, json=data, verify=False)
-            if response.status_code == 200:
-                respuesta = response.json()
-                self.id_taxi = respuesta['id_taxi']
+            if response.status_code == 201:
+                self.id_taxi = id_taxi
                 print(f"Taxi registrado con ID: {self.id_taxi}")
+            elif response.status_code == 409:
+                print(f"Error: El ID '{id_taxi}' ya está en uso.")
             else:
                 print(f"Error al registrar el taxi: {response.status_code} - {response.text}")
         except requests.exceptions.RequestException as e:
@@ -72,41 +78,51 @@ class EC_DE:
 
 
 
+
     def autenticar(self):
-        """Autenticarse en EC_Central usando el token recibido."""
+        """Autenticarse en EC_Central y recibir el token y la clave de cifrado."""
         if self.id_taxi is None:
+            print("Debe darse de alta en el registro antes de autenticarse.")
             return  # No puede autenticarse sin estar dado de alta
-        
-        respuesta = ''
+
+        # Crear contexto SSL
+        context = ssl.create_default_context()
+        context.check_hostname = False
+        context.verify_mode = ssl.CERT_NONE  # En entorno de desarrollo; en producción usar CERT_REQUIRED
+
+        # Crear socket y envolverlo con SSL
+        cliente = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        conn = context.wrap_socket(cliente, server_hostname=self.ip_servidor)
+        conn.connect((self.ip_servidor, self.puerto_servidor))
+
+        # Enviar el mensaje "ALTA {id_taxi}" para solicitar autenticación
+        mensaje_alta = f"ALTA {self.id_taxi}"
+        conn.send(mensaje_alta.encode())
+
+        # Recibir respuesta de la central
+        respuesta = conn.recv(4096).decode()
+
         try:
-            context = ssl.create_default_context()
-            context.load_verify_locations('Certificado/certServ.pem')
-            
-            with socket.create_connection((self.ip_servidor, self.puerto_servidor)) as sock:
-                with context.wrap_socket(sock, server_hostname=self.ip_servidor) as ssock:
-                    mensaje = f"AUTENTICAR {self.id_taxi}"
-                    ssock.send(mensaje.encode())
-                    respuesta = ssock.recv(1024).decode()
-        except Exception as e:
-            print("Error al conectar:", e)
-        #cliente = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        #cliente.connect((self.ip_servidor, self.puerto_servidor))
+            # Intentar decodificar la respuesta como JSON
+            datos = json.loads(respuesta)
+            self.token = datos['token']
+            clave_cifrado = datos['clave']
 
-        # Enviar el token para autenticarse
-        
+            # Guardar la clave de cifrado
+            self.clave_cifrado = clave_cifrado.encode('utf-8')
 
-        # Recibir respuesta de autenticación
-        #respuesta = cliente.recv(1024).decode()
+            print(f"Autenticado correctamente. Token recibido: {self.token}")
 
-        #cliente.close()
+            self.autenticado = True  # Ahora puede enviar mensajes a la central
 
-        # Verificar la autenticación
-        if "Autenticado correctamente" in respuesta:
-            self.autenticado = True  # Solo ahora puede enviar mensajes a la central
-            print(f"ID {self.id_taxi}")
-            self.iniciar_envio_estado_periodico()
-        else:
-            print("Error en la autenticacion")
+            # Iniciar el envío periódico del estado en un hilo separado
+            self.iniciar_envio_estado_periodico_en_hilo()
+
+        except json.JSONDecodeError:
+            print(f"Error en la autenticación: {respuesta}")
+
+        conn.close()
+
 
     def obtener_info_taxi(self):
         if self.id_taxi is None:
@@ -178,25 +194,42 @@ class EC_DE:
 
 
 
-    def iniciar_envio_estado_periodico(self):
-        """Envía el estado del taxi a Kafka cada segundo."""
+    def iniciar_envio_estado_periodico_en_hilo(self):
+        """Inicia el envío periódico del estado en un hilo separado."""
+        hilo = threading.Thread(target=self._enviar_estado_periodico, daemon=True)
+        hilo.start()
+
+    def _enviar_estado_periodico(self):
+        """Envía el estado del taxi a Kafka cada segundo en un hilo separado."""
         if self.autenticado:
             while True:
                 self.enviar_estado_kafka()
                 time.sleep(1)
 
-    def enviar_estado_kafka(self):
-        """Envía el estado del taxi a Kafka con True/False para los campos ocupado e incidencia."""
-        if not self.autenticado:
-            return  # Solo enviar mensajes si el taxi está autenticado
 
-        # Enviar mensaje con el formato correcto
-        mensaje = (f"{self.id_taxi} {self.ocupado} {self.incidencia} "
-                   f"Coordenadas: ({self.coordenada_x},{self.coordenada_y})")
+    def enviar_estado_kafka(self):
+        """Envía el estado del taxi a Kafka cifrado con la clave de cifrado."""
+        if not self.autenticado or not self.clave_cifrado:
+            return  # Solo enviar mensajes si el taxi está autenticado y tiene la clave
+
+        # Crear el objeto Fernet con la clave de cifrado
+        fernet = Fernet(self.clave_cifrado)
+
+        # Crear el mensaje con el estado del taxi
+        mensaje_estado = (f"{self.ocupado} {self.incidencia} "
+                        f"Coordenadas: ({self.coordenada_x},{self.coordenada_y})")
+
+        # Cifrar el mensaje
+        mensaje_cifrado = fernet.encrypt(mensaje_estado.encode('utf-8'))
+
+        # Incluir el id_taxi en el mensaje para que la central pueda identificarlo
+        mensaje_final = f"{self.id_taxi}|".encode('utf-8') + mensaje_cifrado
 
         # Enviar el mensaje a Kafka
-        self.producer.send('solicitud', mensaje.encode('utf-8'))
+        self.producer.send('solicitud', mensaje_final)
         self.producer.flush()  # Asegurar que el mensaje se envíe inmediatamente
+
+
 
     def escuchar_senales(self):
         servidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
