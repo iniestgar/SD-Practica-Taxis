@@ -10,6 +10,11 @@ import json
 from cryptography.fernet import Fernet 
 import ssl
 import mysql.connector
+import requests
+import logging
+LOG_FILE = "ec_central.log"
+logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format="%(asctime)s %(message)s")
+from datetime import datetime
 
 
 class EC_Central:
@@ -32,7 +37,7 @@ class EC_Central:
             host="localhost",
             user="root",
             password="6633",
-            database="sd_mysql"
+            database="sd_bbdd"
         )
         self.cursor = self.conn.cursor()
 
@@ -119,13 +124,6 @@ class EC_Central:
 
                 # Generar un token para el taxi
                 token = self.generar_token()
-        # Recibir mensaje del taxi
-        mensaje = connstream.recv(1024).decode()
-
-        """if mensaje == "ALTA":
-            # Generar un token para el taxi
-            token = self.generar_token()
-
                 # Generar una clave de cifrado para el taxi
                 clave_cifrado = Fernet.generate_key().decode()  # Convertir a cadena para enviar
 
@@ -364,7 +362,38 @@ class EC_Central:
 
     #def peticion_desconexion():
         #Enviara por kafka un mensaje con otro topic
-        
+    def log_event(self,event_type, details):
+        """
+        Registrar evento en el sistema de auditoría.
+        """
+        logging.info(f"Evento: {event_type}, Detalles: {details}")
+
+    def check_traffic(self):
+        """Consulta el estado de tráfico desde EC_CTC."""
+        print("------------ComprobarTrafico------------")
+        EC_CTC_URL = "https://localhost:4000/city-traffic"
+        Certificado = "./CertificadoEC_CTC/certEC_CTC.pem"
+        while True:
+            try:
+                # Enviar la solicitud al EC_CTC
+                response = requests.get(EC_CTC_URL, verify=Certificado)
+                
+                # Analizar la respuesta
+                if response.status_code == 200:
+                    data = response.json()
+                    self.log_event("Consulta Exitosa", f"Respuesta: {data}")
+                    
+                    if data["status"] == "OK":
+                        print(f"Tráfico viable en {data['city']}. Operación normal.")
+                    else:
+                        print(f"Tráfico no viable en {data['city']}. Retirando taxis.")
+                        self.log_event("Tráfico No Viable", f"Ciudad: {data['city']}")
+                        # Aquí se envia una orden a los taxis y se marcaria incidencia
+                else:
+                    self.log_event("Error", f"HTTP {response.status_code}: {response.text}")
+            except Exception as e:
+                self.log_event("Error", f"Conectando al API: {str(e)}")
+
 
     def iniciar(self):
         """Inicia el servidor de sockets y los consumidores de Kafka en hilos separados."""
@@ -376,6 +405,9 @@ class EC_Central:
         """hilo_señal_desconectar_taxi = threading.Thread(target=self.peticion_desconexion, daemon=True)
         hilo_señal_desconectar_taxi.start()"""
 
+        #Consulta a las API_REST de EC_CTC
+        hilo_temperatura = threading.Thread(target=self.check_traffic, daemon=True)
+        hilo_temperatura.start()
         # Crear contexto SSL
         context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
         context.load_cert_chain(certfile='cert.pem', keyfile='key.pem')  # Asegúrate de tener los certificados
