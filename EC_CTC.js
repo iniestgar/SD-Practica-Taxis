@@ -17,7 +17,7 @@ const OPENWEATHER_URL = 'https://api.openweathermap.org/data/2.5/weather';
 
 // Configuración del servidor HTTPS
 const PORT = 4000;
-const CERT_PATH = "./CertificadoEC_CTC/certEC_CTC.pem"; // Ruta del certificado autofirmado
+const CERT_PATH = "CertificadoEC_CTC/certEC_CTC.pem"; // Ruta del certificado autofirmado
 
 
 // Variable para almacenar la ciudad actual
@@ -41,6 +41,12 @@ function promptCity() {
     });
 }
 
+// Crear un agente HTTPS que ignore los errores de verificación del certificado
+const httpsAgent = new https.Agent({
+    rejectUnauthorized: false,
+    requestCert: true
+});
+
 // Endpoint principal para obtener estado del tráfico
 app.get('/city-traffic', async (req, res) => {
     if (!currentCity) {
@@ -54,7 +60,8 @@ app.get('/city-traffic', async (req, res) => {
                 q: currentCity,
                 appid: OPENWEATHER_API_KEY,
                 units: 'metric' // Para obtener la temperatura en grados Celsius
-            }
+            },
+            httpsAgent
         });
 
         const temperature = response.data.main.temp;

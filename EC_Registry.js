@@ -13,7 +13,7 @@ const connection = mysql.createConnection({
   host: 'localhost',
   user: 'root',
   password: '6633',
-  database: 'SD_MYSQL',
+  database: 'sd_bbdd',
 });
 
 // Conectar a la base de datos

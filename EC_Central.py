@@ -11,14 +11,13 @@ from cryptography.fernet import Fernet
 import ssl
 import mysql.connector
 import requests
-import logging
-LOG_FILE = "ec_central.log"
-logging.basicConfig(filename=LOG_FILE, level=logging.INFO, format="%(asctime)s %(message)s")
+import warnings
+warnings.filterwarnings('ignore', message='Unverified HTTPS request') #Para evitar warnings de certificados no verificados como en el caso de la API de EC_CTC
 from datetime import datetime
 
 
 class EC_Central:
-    def __init__(self, ip, puerto, fichero_localizaciones, ip_kafka, puerto_kafka):
+    def __init__(self, ip, puerto, fichero_localizaciones, ip_kafka, puerto_kafka, ip_city_traffic, puerto_city_traffic):
         self.ip = ip
         self.puerto = puerto
         self.localizaciones = {}
@@ -26,6 +25,8 @@ class EC_Central:
         self.tokens_taxis = {}  # Diccionario para mapear tokens a IDs de taxis
         self.ip_kafka = ip_kafka
         self.puerto_kafka = puerto_kafka
+        self.ip_city_traffic = ip_city_traffic
+        self.puerto_city_traffic = puerto_city_traffic
         self.producer = KafkaProducer(bootstrap_servers=f'{ip_kafka}:{puerto_kafka}')  # Productor Kafka
         self.mapa = Mapa()  # Inicializamos la clase Mapa para manejar la visualización
 
@@ -338,6 +339,22 @@ class EC_Central:
             ocupado, incidencia, x, y = estado
             print(f"Taxi {id_taxi} - Ocupado: {ocupado}, Incidencia: {incidencia}, Posición: ({x}, {y})")
 
+    def enviar_datos_APICENTRAL(self):
+        """Envia los datos de los taxis a la API Central."""
+        # URL de la API Central
+        url = "https://localhost:5000/api/taxis"
+        # Cabecera de la petición
+        headers = {
+            "Content-Type": "application/json"
+        }
+        # Datos a enviar
+        datos = {
+            "taxis": self.estados_taxis
+        }
+        # Realizar la petición
+        response = requests.post(url, headers=headers, json=datos, verify=False)
+        # Mostrar el resultado
+        print("Respuesta de la API Central:", response.text)
 
 
     def iniciar_consumidor_kafka_taxis(self, tema='solicitud'):
@@ -362,37 +379,34 @@ class EC_Central:
 
     #def peticion_desconexion():
         #Enviara por kafka un mensaje con otro topic
-    def log_event(self,event_type, details):
-        """
-        Registrar evento en el sistema de auditoría.
-        """
-        logging.info(f"Evento: {event_type}, Detalles: {details}")
+    
 
     def check_traffic(self):
         """Consulta el estado de tráfico desde EC_CTC."""
         print("------------ComprobarTrafico------------")
-        EC_CTC_URL = "https://localhost:4000/city-traffic"
-        Certificado = "./CertificadoEC_CTC/certEC_CTC.pem"
+        EC_CTC_URL = f"https://{self.ip_city_traffic}:{self.puerto_city_traffic}/city-traffic"
+        # Certificado = "CertificadoEC_CTC/certEC_CTC.pem"
         while True:
             try:
                 # Enviar la solicitud al EC_CTC
-                response = requests.get(EC_CTC_URL, verify=Certificado)
-                
+                response = requests.get(EC_CTC_URL, verify=False)
+                print("Consulta al traffic API")
                 # Analizar la respuesta
                 if response.status_code == 200:
                     data = response.json()
-                    self.log_event("Consulta Exitosa", f"Respuesta: {data}")
+                    print("Consulta Exitosa", f"Respuesta: {data}")
                     
                     if data["status"] == "OK":
                         print(f"Tráfico viable en {data['city']}. Operación normal.")
                     else:
                         print(f"Tráfico no viable en {data['city']}. Retirando taxis.")
-                        self.log_event("Tráfico No Viable", f"Ciudad: {data['city']}")
+                        print("Tráfico No Viable", f"Ciudad: {data['city']}")
                         # Aquí se envia una orden a los taxis y se marcaria incidencia
                 else:
-                    self.log_event("Error", f"HTTP {response.status_code}: {response.text}")
+                    print("Error", f"HTTP {response.status_code}: {response.text}")
             except Exception as e:
-                self.log_event("Error", f"Conectando al API: {str(e)}")
+                print("Error", f"Conectando al API: {str(e)}")
+            time.sleep(10)  # Consultar cada 10 segundos
 
 
     def iniciar(self):
@@ -404,6 +418,9 @@ class EC_Central:
         # Cuando el usuario quiera debera escribir el id de un taxi para desconectarlo y que vuelva a su posicion original
         """hilo_señal_desconectar_taxi = threading.Thread(target=self.peticion_desconexion, daemon=True)
         hilo_señal_desconectar_taxi.start()"""
+
+        #Consulta a las API_REST de API_CENTRAL
+        hilo_API_CENTRAL = threading.Thread(target=self.check_traffic, daemon=True)
 
         #Consulta a las API_REST de EC_CTC
         hilo_temperatura = threading.Thread(target=self.check_traffic, daemon=True)
@@ -441,8 +458,8 @@ class EC_Central:
 
 # Ejecutar el servidor con IP, Puerto y archivo de localizaciones pasados por consola
 if __name__ == "__main__":
-    if len(sys.argv) != 6:
-        print("Uso: python EC_Central.py <IP> <Puerto> <archivo_de_localizaciones> <IP_Kafka> <Puerto_Kafka>")
+    if len(sys.argv) != 8:
+        print("Uso: python EC_Central.py <IP> <Puerto> <archivo_de_localizaciones> <IP_Kafka> <Puerto_Kafka> <IP_City_Traffic> <Puerto_City_Traffic>")
         sys.exit(1)
 
     ip = sys.argv[1]
@@ -450,9 +467,11 @@ if __name__ == "__main__":
     archivo_localizaciones = sys.argv[3]
     ip_kafka = sys.argv[4]
     puerto_kafka = sys.argv[5]
+    ip_city_traffic = sys.argv[6]
+    puerto_city_traffic = sys.argv[7]
 
     # Crear instancia de EC_Central con IP, Puerto, archivo de localizaciones, IP y puerto de Kafka
-    central = EC_Central(ip, puerto, archivo_localizaciones, ip_kafka, puerto_kafka)
+    central = EC_Central(ip, puerto, archivo_localizaciones, ip_kafka, puerto_kafka, ip_city_traffic, puerto_city_traffic)
 
     # Mostrar localizaciones antes de iniciar el servidor
     print("Localizaciones cargadas desde el archivo:")
