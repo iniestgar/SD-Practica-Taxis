@@ -2,6 +2,7 @@ const express = require('express');
 const app = express();
 const axios = require('axios');
 const readline = require('readline');
+const https = require('https');
 
 // Configuración de la API de OpenWeather
 const OPENWEATHER_API_KEY = 'bfb5244f957c4c091acad44290dad571'; // API key de OpenWeather
@@ -36,7 +37,7 @@ function promptCity() {
 }
 
 // Crear un agente HTTPS que ignore los errores de verificación del certificado
-const httpsAgent = new https.Agent({
+https.Agent({
     rejectUnauthorized: false,
     requestCert: true
 });
