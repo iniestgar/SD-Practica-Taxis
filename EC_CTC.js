@@ -1,21 +1,13 @@
 const express = require('express');
 const app = express();
-const https = require('https');
-const fs = require('fs');
-const bodyParser = require("body-parser");
 const axios = require('axios');
 const readline = require('readline');
 
-
-
-app.use(express.json()); // Para parsear solicitudes con cuerpo en formato JSON
-// Crear aplicación Express
-app.use(bodyParser.json());
-// Configuración de API de OpenWeather
-const OPENWEATHER_API_KEY = 'bfb5244f957c4c091acad44290dad571'; // Reemplaza con tu API key de OpenWeather
+// Configuración de la API de OpenWeather
+const OPENWEATHER_API_KEY = 'bfb5244f957c4c091acad44290dad571'; // API key de OpenWeather
 const OPENWEATHER_URL = 'https://api.openweathermap.org/data/2.5/weather';
 
-// Configuración del servidor HTTPS
+// Configuración del servidor
 const PORT = 4000;
 const CERT_PATH = "CertificadoEC_CTC/certEC_CTC.pem"; // Ruta del certificado autofirmado
 
@@ -23,12 +15,14 @@ const CERT_PATH = "CertificadoEC_CTC/certEC_CTC.pem"; // Ruta del certificado au
 // Variable para almacenar la ciudad actual
 let currentCity = "";
 
-// Configurar readline para entrada del usuario
+// Configurar readline para la entrada del usuario
 const rl = readline.createInterface({
     input: process.stdin,
     output: process.stdout
 });
 
+
+// Función para pedir la ciudad al usuario
 function promptCity() {
     rl.question("Por favor, introduce el nombre de la ciudad: ", (city) => {
         if (city.trim()) {
@@ -37,7 +31,7 @@ function promptCity() {
         } else {
             console.log("La ciudad no puede estar vacía.");
         }
-        promptCity(); // Preguntar nuevamente
+        promptCity(); // Volver a pedir la ciudad
     });
 }
 
@@ -47,7 +41,7 @@ const httpsAgent = new https.Agent({
     requestCert: true
 });
 
-// Endpoint principal para obtener estado del tráfico
+// Endpoint principal para obtener el estado del tráfico
 app.get('/city-traffic', async (req, res) => {
     if (!currentCity) {
         return res.status(400).json({ error: "No se ha configurado ninguna ciudad." });
@@ -65,12 +59,12 @@ app.get('/city-traffic', async (req, res) => {
         });
 
         const temperature = response.data.main.temp;
-        const status = temperature < 0 ? "KO" : "OK";
+        const status = temperature > 0 ? "SI" : "NO"; // Si la temperatura es mayor que 0, continuar tráfico
 
         res.json({
             city: currentCity,
             temperature,
-            status
+            trafficAllowed: status // SI o NO
         });
     } catch (error) {
         console.error("Error llamando a OpenWeather:", error.message);
@@ -78,14 +72,8 @@ app.get('/city-traffic', async (req, res) => {
     }
 });
 
-// Arrancar el servidor HTTPS
-https.createServer(
-    {
-        key: fs.readFileSync(CERT_PATH),
-        cert: fs.readFileSync(CERT_PATH),
-    },
-    app
-).listen(PORT, () => {
-    console.log(`Servidor EC_CTC escuchando en https://localhost:${PORT}`);
-    promptCity();
+// Iniciar el servidor HTTP
+app.listen(PORT, () => {
+    console.log(`Servidor EC_CTC escuchando en http://localhost:${PORT}`);
+    promptCity(); // Pedir la ciudad por consola
 });

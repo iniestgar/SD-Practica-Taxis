@@ -1,5 +1,7 @@
 import pygame
 import time
+import requests
+import os
 
 # Definir constantes para el mapa
 WIDTH, HEIGHT = 800, 800
@@ -24,6 +26,9 @@ class Mapa:
         self.taxis = {}
         self.destinos = {}
         self.clientes = {}
+
+        # URL del servidor Node.js para recibir mapas
+        self.api_url = "http://localhost:3001/map"
 
     def dibujar_cuadricula(self):
         """Dibuja la cuadrícula del mapa empezando en (1,1) y terminando en (20,20)."""
@@ -51,6 +56,12 @@ class Mapa:
     def agregar_cliente(self, id_cliente, x, y):
         """Agrega o actualiza la posición de un cliente."""
         self.clientes[id_cliente] = (x, y)
+
+    def eliminar_cliente(self, id_cliente):
+        """Elimina un cliente del mapa."""
+        if id_cliente in self.clientes:
+            del self.clientes[id_cliente]
+            self.actualizar_mapa()  # Actualizar la visualización del mapa
 
     def actualizar_mapa(self):
         """Actualiza el mapa con taxis, clientes y destinos."""
@@ -85,15 +96,42 @@ class Mapa:
 
         pygame.display.update()
 
+    def capturar_mapa(self, output_path="mapa.png"):
+        """Captura el mapa en formato PNG."""
+        pygame.image.save(self.screen, output_path)
+        return output_path
+
+    def enviar_mapa(self):
+        """Captura el mapa y lo envía al servidor."""
+        try:
+            # Capturar el mapa como un archivo PNG
+            mapa_path = self.capturar_mapa()
+
+            # Enviar la imagen al servidor
+            with open(mapa_path, "rb") as file:
+                response = requests.post(self.api_url, files={"map": file})
+
+            if response.status_code == 200:
+                print("Mapa enviado correctamente al servidor.")
+            else:
+                print(f"Error al enviar el mapa: {response.status_code} - {response.text}")
+
+            # Eliminar el archivo temporal después del envío
+            os.remove(mapa_path)
+        except Exception as e:
+            print(f"Error al capturar o enviar el mapa: {e}")
+
     def ejecutar(self):
-        """Bucle principal para manejar el mapa y la ventana."""
+        """Bucle principal para manejar el mapa y enviar capturas periódicamente."""
+        clock = pygame.time.Clock()
         running = True
         while running:
             for event in pygame.event.get():
                 if event.type == pygame.QUIT:
                     running = False
 
-            self.actualizar_mapa()
-            time.sleep(1)  # Redibujar el mapa cada segundo
+            self.actualizar_mapa()  # Actualizar el contenido del mapa
+            self.enviar_mapa()  # Capturar y enviar el mapa al servidor
+            clock.tick(1)  # Actualizar cada segundo
 
         pygame.quit()

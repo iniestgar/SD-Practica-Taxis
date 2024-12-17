@@ -13,6 +13,7 @@ import mysql.connector
 import requests
 import warnings
 warnings.filterwarnings('ignore', message='Unverified HTTPS request') #Para evitar warnings de certificados no verificados como en el caso de la API de EC_CTC
+import io
 from datetime import datetime
 
 
@@ -37,13 +38,33 @@ class EC_Central:
         self.conn = mysql.connector.connect(
             host="localhost",
             user="root",
-            password="6633",
-            database="sd_bbdd"
+            password="hola",
+            database="sd_mysql"
         )
         self.cursor = self.conn.cursor()
 
         # Iniciar hilo para imprimir el estado de los taxis cada 10 segundos
         threading.Thread(target=self.imprimir_estado_periodico, daemon=True).start()
+
+    def enviar_log(self, mensaje):
+        """Envía el mensaje de log al servidor Node.js."""
+        url = 'http://localhost:3001/logs'  # Cambia 'localhost' por la IP de tu servidor Node.js si está en otra máquina
+        headers = {'Content-Type': 'application/json'}
+        data = {'message': mensaje}
+        
+        try:
+            response = requests.post(url, headers=headers, data=json.dumps(data))
+            if response.status_code == 200:
+                pass  # Opcional: Puedes manejar una confirmación si lo deseas
+            else:
+                print(f"Error al enviar log: {response.text}")
+        except Exception as e:
+            print(f"Excepción al enviar log: {e}")
+
+    def log(self, mensaje):
+        """Imprime el mensaje en la consola y lo envía al front-end."""
+        print(mensaje)
+        self.enviar_log(mensaje)
 
 
     def leer_fichero_localizaciones(self, fichero):
@@ -64,55 +85,33 @@ class EC_Central:
                         self.localizaciones[id_localizacion] = (cx, cy)
                         self.mapa.agregar_destino(id_localizacion, cx, cy)  # Agregar destino al mapa
                     except (ValueError, IndexError) as e:
-                        print(f"Error: Formato de coordenadas inválido para la localización {id_localizacion}: {e}")
+                        self.log(f"Error: Formato de coordenadas inválido para la localización {id_localizacion}: {e}")
                     
         except FileNotFoundError:
-            print(f"Error: El fichero '{fichero}' no se encuentra.")
+            self.log(f"Error: El fichero '{fichero}' no se encuentra.")
         except json.JSONDecodeError as e:
-            print(f"Error: El fichero '{fichero}' no tiene un formato JSON válido: {e}")
+            self.log(f"Error: El fichero '{fichero}' no tiene un formato JSON válido: {e}")
         except KeyError as e:
-            print(f"Error: El fichero JSON no tiene la estructura esperada: {e}")
+            self.log(f"Error: El fichero JSON no tiene la estructura esperada: {e}")
 
     def mostrar_localizaciones(self):
         """Muestra todas las localizaciones almacenadas."""
-        print("Localizaciones disponibles:")
+        self.log("Localizaciones disponibles:")
         for id_localizacion, coordenadas in self.localizaciones.items():
-            print(f"ID: {id_localizacion}, Coordenadas: {coordenadas}")
+            self.log(f"ID: {id_localizacion}, Coordenadas: {coordenadas}")
 
     def generar_token(self):
         """Genera un token de autenticación de longitud 10."""
         return ''.join(random.choices(string.ascii_letters + string.digits, k=10))
 
-    def escribir_token_en_fichero(self, id_taxi, token):
-        """Escribe el token generado para un taxi en la base de datos."""
-        db = mysql.connector.connect(host="localhost", user="root", password="6633", db="sd_bbdd")
-        if db.is_connected():
-            cursor = db.cursor()
-            cursor.execute("INSERT INTO taxis (token) VALUES (%s) where taxi_id=%s",[token],[id_taxi])
-            
-        """with open(self.fichero_tokens, 'a') as file:
-            file.write(f"{token}\n")"""
-
-    def consultar_fichero_tokens(self, token):
-        """Consulta el archivo tokens.txt para verificar si el token existe."""
-        try:
-            with open(self.fichero_tokens, 'r') as file:
-                for linea in file:
-                    if linea.strip() == token:
-                        return True
-            return False
-        except FileNotFoundError:
-            print("Error: El fichero de tokens no existe.")
-            return False
-
     def manejar_solicitud(self, connstream, direccion):
         """Maneja la solicitud de alta y autenticación del taxi."""
-        print(f"Conexión establecida desde {direccion}")
+        self.log(f"Conexión establecida desde {direccion}")
 
         try:
             # Recibir mensaje del taxi
             mensaje = connstream.recv(1024).decode()
-            print(f"Mensaje recibido: {mensaje}")
+            self.log(f"Mensaje recibido: {mensaje}")
 
             if mensaje.startswith("ALTA"):
                 # Extraer el id_taxi del mensaje
@@ -125,12 +124,13 @@ class EC_Central:
 
                 # Generar un token para el taxi
                 token = self.generar_token()
+
                 # Generar una clave de cifrado para el taxi
                 clave_cifrado = Fernet.generate_key().decode()  # Convertir a cadena para enviar
 
                 # Actualizar el diccionario tokens_taxis
-                self.tokens_taxis[id_taxi] = {
-                    'token': token,
+                self.tokens_taxis[token] = {
+                    'id_taxi': id_taxi,
                     'clave_cifrado': clave_cifrado
                 }
 
@@ -153,136 +153,118 @@ class EC_Central:
                 # Enviar el token y la clave de vuelta al taxi
                 respuesta = json.dumps({"token": token, "clave": clave_cifrado})
                 connstream.send(respuesta.encode())
-                print(f"Token y clave generados y enviados al taxi {id_taxi}, y guardados en la base de datos.")
+                self.log(f"Token y clave generados y enviados al taxi {id_taxi}, y guardados en la base de datos.")
 
         except Exception as e:
-            print(f"Error al manejar la solicitud: {e}")
+            self.log(f"Error al manejar la solicitud: {e}")
         finally:
             connstream.close()
 
 
     def procesar_estado_taxi(self, mensaje):
-        """Procesa el mensaje de estado cifrado recibido de un taxi."""
         try:
-            # Si mensaje es un objeto de Kafka, obtenemos su valor
+            # Verificar y decodificar el mensaje recibido
             if hasattr(mensaje, 'value'):
                 mensaje_cifrado = mensaje.value
             else:
-                # Si mensaje es una cadena o bytes, lo usamos directamente
                 if isinstance(mensaje, str):
                     mensaje_cifrado = mensaje.encode('utf-8')
                 else:
                     mensaje_cifrado = mensaje
 
-            # Dividir el mensaje para obtener id_taxi y mensaje cifrado
-            partes_mensaje = mensaje_cifrado.split(b'|', 1)
-            if len(partes_mensaje) < 2:
-                print("Mensaje mal formado: no se encontró el separador '|'")
+            # Separar el token y el mensaje cifrado
+            partes = mensaje_cifrado.split(b'|', 1)
+            if len(partes) < 2:
+                self.log("Mensaje mal formado: no se encontró el separador '|'")
                 return
 
-            id_taxi_bytes, mensaje_cifrado_real = partes_mensaje
-            id_taxi = id_taxi_bytes.decode('utf-8')
+            token_bytes, mensaje_cifrado_real = partes
+            token = token_bytes.decode('utf-8')
 
-            # Obtener la clave de cifrado del taxi desde el diccionario tokens_taxis
-            datos_taxi = self.tokens_taxis.get(id_taxi)
+            # Obtener id_taxi y clave_cifrado desde tokens_taxis usando el token
+            datos_taxi = self.tokens_taxis.get(token)
             if not datos_taxi:
-                print(f"No se encontró el id_taxi {id_taxi} en tokens_taxis.")
+                self.log(f"No se encontró el token {token} en tokens_taxis.")
                 return
 
+            id_taxi = datos_taxi['id_taxi']
             clave_cifrado = datos_taxi['clave_cifrado']
 
-            # Crear objeto Fernet con la clave de cifrado
-            fernet = Fernet(clave_cifrado.encode('utf-8'))
-
             # Descifrar el mensaje
+            fernet = Fernet(clave_cifrado.encode('utf-8'))
             mensaje_descifrado = fernet.decrypt(mensaje_cifrado_real).decode('utf-8')
 
-            # Procesar el mensaje descifrado
-            # Formato esperado: "ocupado incidencia Coordenadas: (x,y)"
-            partes = mensaje_descifrado.split()
+            # Convertir el mensaje descifrado a JSON
+            datos = json.loads(mensaje_descifrado)
 
-            if len(partes) < 3:
-                print(f"Mensaje descifrado mal formado: {mensaje_descifrado}")
-                return
+            # Extraer los datos del mensaje
+            ocupado = bool(datos['ocupado'])
+            incidencia = bool(datos['incidencia'])
+            coordenada_x, coordenada_y = datos['coordenadas']
 
-            # Extraer los valores
-            ocupado_str = partes[0]
-            incidencia_str = partes[1]
-            coordenadas_str = ' '.join(partes[2:])
-
-            # Convertir a booleanos
-            ocupado = ocupado_str.lower() == "true"
-            incidencia = incidencia_str.lower() == "true"
-
-            # Extraer las coordenadas
-            try:
-                coordenadas = coordenadas_str.replace('Coordenadas:', '').strip('() ')
-                x_str, y_str = coordenadas.split(',')
-                coordenada_x = int(x_str.strip())
-                coordenada_y = int(y_str.strip())
-            except Exception as e:
-                print(f"Error al extraer las coordenadas: {e}")
-                return
-
-            # Actualizar el estado del taxi
+            # Comparar con el estado anterior para detectar cambios
             estado_anterior = self.estados_taxis.get(id_taxi)
-            cambio_detectado = False
-
-            if not estado_anterior:
-                # Si es la primera vez, registrar el estado y mostrarlo
-                self.estados_taxis[id_taxi] = (ocupado, incidencia, coordenada_x, coordenada_y)
-                print(f"Nuevo taxi conectado: {id_taxi}")
-                self.mapa.agregar_taxi(id_taxi, coordenada_x, coordenada_y, incidencia)  # Agregar taxi al mapa
-            else:
-                # Comparar con el estado anterior
-                if (estado_anterior[2] != coordenada_x or
-                    estado_anterior[3] != coordenada_y or
+            if estado_anterior:
+                estado_cambiado = (
+                    estado_anterior[0] != ocupado or
                     estado_anterior[1] != incidencia or
-                    estado_anterior[0] != ocupado):
-                    # Actualizar el estado en el mapa
-                    self.mapa.agregar_taxi(id_taxi, coordenada_x, coordenada_y, incidencia)
-                    cambio_detectado = True
+                    estado_anterior[2] != coordenada_x or
+                    estado_anterior[3] != coordenada_y
+                )
+            else:
+                estado_cambiado = True  # Si no hay estado anterior, siempre es un cambio
 
-                    # Actualizar el estado en el diccionario
-                    self.estados_taxis[id_taxi] = (ocupado, incidencia, coordenada_x, coordenada_y)
+            if estado_cambiado:
+                # Actualizar estado en el diccionario de memoria
+                self.estados_taxis[id_taxi] = (ocupado, incidencia, coordenada_x, coordenada_y)
 
+                # Actualizar estado en la base de datos
+                self.cursor.execute(
+                    """
+                    UPDATE Taxis
+                    SET ocupado = %s, incidencia = %s, coordenada_x = %s, coordenada_y = %s
+                    WHERE id_taxi = %s
+                    """,
+                    (ocupado, incidencia, coordenada_x, coordenada_y, id_taxi)
+                )
+                self.conn.commit()
+
+                # Log del estado actualizado solo si hay cambios
+                self.log(f"Estado actualizado: Taxi {id_taxi} - Ocupado: {ocupado}, Incidencia: {incidencia}, Coordenadas: ({coordenada_x}, {coordenada_y})")
+
+                # Actualizar el mapa con el nuevo estado
+                self.mapa.agregar_taxi(id_taxi, coordenada_x, coordenada_y, incidencia)
+
+        except json.JSONDecodeError as e:
+            self.log(f"Error al decodificar JSON: {e}")
+        except mysql.connector.Error as e:
+            self.log(f"Error en la base de datos: {e}")
         except Exception as e:
-            print(f"Error al procesar el mensaje del taxi: {e}")
-
-
-
-    def obtener_id_y_clave_de_token(self, token):
-        """Obtiene el token y la clave de cifrado asociados a un token."""
-        datos = self.tokens_taxis.get(token)
-        if datos:
-            return datos['token'], datos['clave_cifrado']
-        else:
-            return None, None
+            self.log(f"Error al procesar el mensaje del taxi: {e}")
 
 
     def asignar_taxi(self, id_cliente, coordenada_cliente, destinos, reintentos=5, espera=3):
-        
         # Convertir la lista de destinos (letras) a coordenadas reales
         destinos_coordenadas = []
         for destino in destinos:
             if destino in self.localizaciones:
                 destinos_coordenadas.append(self.localizaciones[destino])
             else:
-                print(f"Destino {destino} no encontrado en las localizaciones.")
+                self.log(f"Destino {destino} no encontrado en las localizaciones.")
                 return
 
         intentos = 0
         taxi_asignado = False
         self.mapa.agregar_cliente(id_cliente, coordenada_cliente[0], coordenada_cliente[1])  # Agregar cliente al mapa
-        while intentos < reintentos and not taxi_asignado:
+
+        while not taxi_asignado:
             for id_taxi, estado in self.estados_taxis.items():
                 ocupado, incidencia, _, _ = estado
                 if not ocupado:
                     # Encontramos un taxi disponible
-                    print(f"Taxi {id_taxi} asignado al cliente {id_cliente}.")
-                    
+                    self.log(f"Taxi {id_taxi} asignado al cliente {id_cliente}.")
 
-                    # Generar el mensaje de asignación con múltiples destinos
+                    # Generar el mensaje de asignación con múltiples destinos (sin cifrar por ahora)
                     mensaje_asignacion = json.dumps({
                         "Taxi": id_taxi,
                         "Cliente": id_cliente,
@@ -290,54 +272,233 @@ class EC_Central:
                         "Destinos": destinos_coordenadas
                     })
 
-                    # Enviar mensaje al topic de Kafka
-                    self.producer.send('asignacionCliente', mensaje_asignacion.encode('utf-8'))
-                    self.producer.flush()
+                    # Buscar el token y clave_cifrado asociados al id_taxi
+                    token = None
+                    clave_cifrado = None
+                    for tok, datos in self.tokens_taxis.items():
+                        if datos['id_taxi'] == id_taxi:
+                            token = tok
+                            clave_cifrado = datos['clave_cifrado']
+                            break
+
+                    if not token:
+                        self.log(f"No se encontró información para el taxi {id_taxi} en tokens_taxis.")
+                        continue  # Continúa buscando otro taxi disponible
+
+                    # Crear objeto Fernet con la clave de cifrado
+                    try:
+                        fernet = Fernet(clave_cifrado.encode('utf-8'))
+                    except Exception as e:
+                        self.log(f"Error al crear objeto Fernet para el taxi {id_taxi}: {e}")
+                        continue
+
+                    # Cifrar el mensaje
+                    try:
+                        mensaje_cifrado = fernet.encrypt(mensaje_asignacion.encode('utf-8'))
+                    except Exception as e:
+                        self.log(f"Error al cifrar el mensaje para el taxi {id_taxi}: {e}")
+                        continue
+
+                    # Formato: token en claro + '|' + mensaje cifrado
+                    mensaje_final = token.encode('utf-8') + b'|' + mensaje_cifrado
+
+                    # Enviar mensaje cifrado al topic 'asignacionCliente'
+                    try:
+                        self.producer.send('asignacionCliente', mensaje_final)
+                        self.producer.flush()
+                        self.log(f"Mensaje de asignación enviado al taxi {id_taxi}.")
+                    except Exception as e:
+                        self.log(f"Error al enviar mensaje al topic 'asignacionCliente' para el taxi {id_taxi}: {e}")
+                        continue
 
                     # Actualizar el estado del taxi a ocupado
                     self.estados_taxis[id_taxi] = (True, incidencia, estado[2], estado[3])
+
+                    # Actualizar la base de datos para asignar el cliente al taxi
+                    try:
+                        self.cursor.execute(
+                            """
+                            UPDATE Taxis
+                            SET cliente_asignado = %s
+                            WHERE id_taxi = %s
+                            """,
+                            (id_cliente, id_taxi)
+                        )
+                        self.conn.commit()
+                        self.log(f"Cliente {id_cliente} asignado al taxi {id_taxi} en la base de datos.")
+                    except Exception as e:
+                        self.log(f"Error al actualizar el cliente asignado en la base de datos para el taxi {id_taxi}: {e}")
+
                     taxi_asignado = True
                     break  # Salir del bucle si se asignó un taxi
 
             if not taxi_asignado:
-                print(f"No hay taxis disponibles para el cliente {id_cliente}. Reintentando en {espera} segundos...")
+                self.log(f"No hay taxis disponibles para el cliente {id_cliente}. Reintentando en {espera} segundos...")
                 intentos += 1
                 time.sleep(espera)  # Esperar antes de intentar nuevamente
 
         if not taxi_asignado:
-            print(f"No se pudo asignar un taxi al cliente {id_cliente} después de {reintentos} intentos.")
-
-
+            self.log(f"No se pudo asignar un taxi al cliente {id_cliente} después de {reintentos} intentos.")
 
     def procesar_solicitud_cliente(self, mensaje_cliente):
-        """Procesa el mensaje del cliente y asigna un taxi."""
-        # El mensaje del cliente tendrá el formato JSON con ID, coordenadas y lista de destinos
+        """Procesa el mensaje del cliente y lo muestra en el mapa inmediatamente, luego asigna un taxi."""
         try:
+            # Decodificar el mensaje JSON
             data = json.loads(mensaje_cliente)
             id_cliente = data['id_cliente']
             coordenada_cliente = (data['posicion']['x'], data['posicion']['y'])
             destinos = data['destinos']  # Lista de destinos (letras)
-            
-            print(f"Solicitud recibida del cliente {id_cliente}, coordenadas: {coordenada_cliente}, destinos: {destinos}")
-            
-            # Asignar taxi y pasarle la lista de destinos
-            self.asignar_taxi(id_cliente, coordenada_cliente, destinos)
-            
-        except json.JSONDecodeError as e:
-            print(f"Error al decodificar JSON: {e}")
 
-    def imprimir_estado_periodico(self):
-        """Imprime el estado de los taxis cada 10 segundos."""
+            self.log(f"Solicitud recibida del cliente {id_cliente}, coordenadas: {coordenada_cliente}, destinos: {destinos}")
+
+            # Agregar el cliente al mapa de inmediato
+            self.mapa.agregar_cliente(id_cliente, coordenada_cliente[0], coordenada_cliente[1])
+
+            # Asignar taxi y pasarle la lista de destinos
+            threading.Thread(
+                target=self.asignar_taxi,
+                args=(id_cliente, coordenada_cliente, destinos),
+                daemon=True
+            ).start()
+
+        except json.JSONDecodeError as e:
+            self.log(f"Error al decodificar JSON: {e}")
+        except KeyError as e:
+            self.log(f"Error: Falta la clave {e} en la solicitud del cliente.")
+        except Exception as e:
+            self.log(f"Error al procesar la solicitud del cliente: {e}")
+
+
+    def imprimir_estado_periodico(self, url_ctc):
+        """Imprime el estado de todos los taxis autenticados y la temperatura de la ciudad cada 10 segundos."""
+        estado_clima_actual = "UNKNOWN"
+
         while True:
-            self.imprimir_estados_taxis()
+            # Obtener información del clima
+            temperatura = "Desconocida"
+            ciudad = "Desconocida"
+
+            try:
+                # Consultar el estado del clima
+                response = requests.get(url_ctc)
+                if response.status_code == 200:
+                    datos_clima = response.json()
+                    ciudad = datos_clima.get('city', 'Desconocida')
+                    temperatura = datos_clima.get('temperature', 'N/A')
+                    nuevo_estado_clima = datos_clima.get('trafficAllowed', 'NO')  # 'SI' o 'NO'
+
+                    # Actualizar la incidencia climática si el estado cambia
+                    if nuevo_estado_clima != estado_clima_actual:
+                        estado_clima_actual = nuevo_estado_clima
+                        if estado_clima_actual == "NO":
+                            self.log(f"Incidencia climática detectada: Temperatura {temperatura}°C. Deteniendo taxis.")
+                            self.establecer_incidencia_climatologica(True)
+                        elif estado_clima_actual == "SI":
+                            self.log(f"Clima seguro detectado: Temperatura {temperatura}°C. Reanudando tráfico.")
+                            self.establecer_incidencia_climatologica(False)
+                else:
+                    self.log(f"Error al consultar el CTC: {response.status_code} - {response.text}")
+
+            except Exception as e:
+                self.log(f"Error al conectar con el servidor CTC: {e}")
+
+            # Imprimir el estado de los taxis
+            print("\n--- Estado de los taxis autenticados ---")
+            if not self.estados_taxis:
+                print("No hay taxis autenticados.")
+            else:
+                for id_taxi, estado in self.estados_taxis.items():
+                    ocupado, incidencia, x, y = estado
+                    print(f"Taxi {id_taxi}: Ocupado: {ocupado}, Incidencia: {incidencia}, Coordenadas: ({x}, {y})")
+            print(f"Clima actual en {ciudad}: Temperatura: {temperatura}°C, Estado: {estado_clima_actual}")
+            print("---------------------------------------")
+
+            # Esperar 10 segundos antes de imprimir de nuevo
             time.sleep(10)
+
 
     def imprimir_estados_taxis(self):
         """Imprime el estado actual de todos los taxis."""
-        print("Estados de los taxis:")
+        self.log("Estados de los taxis:")
         for id_taxi, estado in self.estados_taxis.items():
             ocupado, incidencia, x, y = estado
             print(f"Taxi {id_taxi} - Ocupado: {ocupado}, Incidencia: {incidencia}, Posición: ({x}, {y})")
+
+    def consultar_estado_clima(self, url_ctc):
+        """Consulta el estado del clima al servidor CTC y actualiza el estado de los taxis según la temperatura."""
+        estado_clima_anterior = None
+
+        while True:
+            try:
+                # Realizar la petición al servidor CTC
+                response = requests.get(url_ctc)
+                if response.status_code == 200:
+                    datos = response.json()
+                    temperatura = datos.get('temperature', 0)
+                    estado_clima = datos.get('trafficAllowed', 'NO')  # SI o NO
+
+                    # Cambio de estado del clima
+                    if estado_clima != estado_clima_anterior:
+                        if estado_clima == "NO":
+                            self.log(f"Clima peligroso detectado: Temperatura {temperatura}°C. Deteniendo taxis.")
+                            self.establecer_incidencia_climatologica(True)
+                        elif estado_clima == "SI":
+                            self.log(f"Clima seguro detectado: Temperatura {temperatura}°C. Reanudando tráfico.")
+                            self.establecer_incidencia_climatologica(False)
+
+                        estado_clima_anterior = estado_clima
+                else:
+                    self.log(f"Error al consultar el CTC: {response.status_code} - {response.text}")
+            except Exception as e:
+                self.log(f"Error al conectar con el servidor CTC: {e}")
+
+            # Esperar 10 segundos antes de la próxima consulta
+            time.sleep(10)
+
+    def establecer_incidencia_climatologica(self, incidencia):
+        """Activa o desactiva la incidencia climática para todos los taxis."""
+        # Actualizar el estado en memoria y en la base de datos
+        for id_taxi in self.estados_taxis.keys():
+            ocupado, _, x, y = self.estados_taxis[id_taxi]
+            self.estados_taxis[id_taxi] = (ocupado, incidencia, x, y)
+
+            # Actualizar la base de datos
+            self.cursor.execute(
+                "UPDATE Taxis SET incidencia = %s WHERE id_taxi = %s",
+                (incidencia, id_taxi)
+            )
+
+            # Actualizar el estado en el mapa
+            self.mapa.agregar_taxi(id_taxi, x, y, incidencia)
+
+        self.conn.commit()
+
+        # Notificar a los taxis sobre el cambio de incidencia
+        mensaje = {"tipo": "incidencia_climatologica", "incidencia": incidencia}
+        self.enviar_mensaje_a_todos_los_taxis(mensaje)
+
+
+
+    def iniciar_consulta_clima(self, url_ctc):
+        """Inicia un hilo para consultar el clima periódicamente."""
+        hilo_clima = threading.Thread(target=self.consultar_estado_clima, args=(url_ctc,), daemon=True)
+        hilo_clima.start()
+
+    def enviar_mensaje_a_todos_los_taxis(self, mensaje):
+        """Envía un mensaje cifrado a todos los taxis usando Kafka."""
+        mensaje_json = json.dumps(mensaje)
+
+        for token, datos in self.tokens_taxis.items():
+            clave_cifrado = datos['clave_cifrado']
+            try:
+                fernet = Fernet(clave_cifrado.encode('utf-8'))
+                mensaje_cifrado = fernet.encrypt(mensaje_json.encode('utf-8'))
+                mensaje_final = f"{token}|".encode('utf-8') + mensaje_cifrado
+
+                # Enviar el mensaje al tópico 'incidenciaClima'
+                self.producer.send('incidenciaClima', mensaje_final)
+            except Exception as e:
+                self.log(f"Error al enviar mensaje al taxi {datos['id_taxi']}: {e}")    
 
     def enviar_datos_APICENTRAL(self):
         """Envia los datos de los taxis a la API Central."""
@@ -361,7 +522,7 @@ class EC_Central:
         """Inicia un consumidor de Kafka para recibir el estado de los taxis."""
         servidor_kafka = f"{self.ip_kafka}:{self.puerto_kafka}"
         consumer = KafkaConsumer(tema, bootstrap_servers=servidor_kafka, auto_offset_reset='latest')
-        print(f"Esperando mensajes de Kafka en el tema '{tema}' desde {servidor_kafka}...")
+        self.log(f"Esperando mensajes de Kafka en el tema '{tema}' desde {servidor_kafka}...")
         
         for mensaje in consumer:
             estado_taxi = mensaje.value.decode('utf-8')
@@ -371,43 +532,13 @@ class EC_Central:
         """Inicia un consumidor de Kafka para recibir las solicitudes de los clientes."""
         servidor_kafka = f"{self.ip_kafka}:{self.puerto_kafka}"
         consumer = KafkaConsumer(tema, bootstrap_servers=servidor_kafka, auto_offset_reset='latest')
-        print(f"Esperando mensajes de Kafka en el tema '{tema}' desde {servidor_kafka}...")
+        self.log(f"Esperando mensajes de Kafka en el tema '{tema}' desde {servidor_kafka}...")
         
         for mensaje in consumer:
             solicitud_cliente = mensaje.value.decode('utf-8')
             self.procesar_solicitud_cliente(solicitud_cliente)
 
-    #def peticion_desconexion():
-        #Enviara por kafka un mensaje con otro topic
-    
-
-    def check_traffic(self):
-        """Consulta el estado de tráfico desde EC_CTC."""
-        print("------------ComprobarTrafico------------")
-        EC_CTC_URL = f"https://{self.ip_city_traffic}:{self.puerto_city_traffic}/city-traffic"
-        # Certificado = "CertificadoEC_CTC/certEC_CTC.pem"
-        while True:
-            try:
-                # Enviar la solicitud al EC_CTC
-                response = requests.get(EC_CTC_URL, verify=False)
-                print("Consulta al traffic API")
-                # Analizar la respuesta
-                if response.status_code == 200:
-                    data = response.json()
-                    print("Consulta Exitosa", f"Respuesta: {data}")
-                    
-                    if data["status"] == "OK":
-                        print(f"Tráfico viable en {data['city']}. Operación normal.")
-                    else:
-                        print(f"Tráfico no viable en {data['city']}. Retirando taxis.")
-                        print("Tráfico No Viable", f"Ciudad: {data['city']}")
-                        # Aquí se envia una orden a los taxis y se marcaria incidencia
-                else:
-                    print("Error", f"HTTP {response.status_code}: {response.text}")
-            except Exception as e:
-                print("Error", f"Conectando al API: {str(e)}")
-            time.sleep(10)  # Consultar cada 10 segundos
-
+    import ssl  # Asegúrate de tener esta importación
 
     def iniciar(self):
         """Inicia el servidor de sockets y los consumidores de Kafka en hilos separados."""
@@ -433,7 +564,7 @@ class EC_Central:
         servidor = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         servidor.bind((self.ip, self.puerto))
         servidor.listen(5)
-        print(f"EC_Central escuchando en {self.ip}:{self.puerto}...")
+        self.log(f"EC_Central escuchando en {self.ip}:{self.puerto}...")
 
         while True:
             conexion, direccion = servidor.accept()
@@ -445,14 +576,14 @@ class EC_Central:
     def imprimir_estado_periodico(self):
         """Imprime el estado de todos los taxis autenticados cada 10 segundos."""
         while True:
-            print("\n--- Estado de los taxis autenticados ---")
+            self.log("\n--- Estado de los taxis autenticados ---")
             if not self.estados_taxis:
-                print("No hay taxis autenticados.")
+                self.log("No hay taxis autenticados.")
             else:
                 for id_taxi, estado in self.estados_taxis.items():
                     ocupado, incidencia, x, y = estado
-                    print(f"Taxi {id_taxi}: Ocupado: {ocupado}, Incidencia: {incidencia}, Coordenadas: ({x}, {y})")
-            print("---------------------------------------")
+                    self.log(f"Taxi {id_taxi}: Ocupado: {ocupado}, Incidencia: {incidencia}, Coordenadas: ({x}, {y})")
+            self.log("---------------------------------------")
             time.sleep(10)  # Espera 10 segundos antes de imprimir de nuevo
 
 
@@ -476,6 +607,10 @@ if __name__ == "__main__":
     # Mostrar localizaciones antes de iniciar el servidor
     print("Localizaciones cargadas desde el archivo:")
     central.mostrar_localizaciones()
+
+     # Iniciar la consulta de clima al servidor CTC
+    url_ctc = "http://localhost:4000/city-traffic"  # Asegúrate de usar http
+    central.iniciar_consulta_clima(url_ctc)
 
     # Iniciar el servidor y el mapa de manera concurrente
     threading.Thread(target=central.iniciar, daemon=True).start()

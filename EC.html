@@ -1,0 +1,177 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EC Central</title>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <!-- Importamos la fuente Orbitron desde Google Fonts -->
+    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;700&display=swap" rel="stylesheet">
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            margin: 0;
+            font-family: Arial, sans-serif;
+            height: 100vh;
+        }
+
+        header {
+            height: 60px;
+            background: linear-gradient(90deg, #1e3c72, #2a5298);
+            color: white;
+            font-family: 'Orbitron', sans-serif;
+            font-size: 24px;
+            font-weight: bold;
+            text-align: center;
+            line-height: 60px;
+            text-transform: uppercase;
+            letter-spacing: 3px;
+            box-shadow: 0px 2px 5px rgba(0, 0, 0, 0.2);
+        }
+
+        #container {
+            display: flex;
+            flex: 1;
+            overflow: hidden;
+        }
+
+        #logs {
+            width: 35%;
+            padding: 20px;
+            overflow-y: auto;
+            background: linear-gradient(to top, #f0f4f8, #e8edf3);
+            border-right: 1px solid #ccc;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+        }
+
+        #logs h2 {
+            margin: 0;
+            padding-bottom: 10px;
+            border-bottom: 2px solid #007bff;
+            color: #007bff;
+        }
+
+        #log-list {
+            list-style: none;
+            padding: 0;
+            margin: 10px 0;
+            max-height: 100%;
+            overflow-y: auto;
+        }
+
+        #log-list li {
+            padding: 10px;
+            margin-bottom: 10px;
+            background: #e6f7ff;
+            border: 1px solid #b3e5fc;
+            border-radius: 5px;
+            font-size: 14px;
+        }
+
+        #log-list li:nth-child(odd) {
+            background: #f9f9f9;
+        }
+
+        #log-list::-webkit-scrollbar {
+            width: 8px;
+        }
+
+        #log-list::-webkit-scrollbar-thumb {
+            background: #007bff;
+            border-radius: 4px;
+        }
+
+        #log-list::-webkit-scrollbar-thumb:hover {
+            background: #0056b3;
+        }
+
+        #map {
+            flex: 1;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            background: #f5f5f5;
+            border-left: 1px solid #ccc;
+        }
+
+        #map img {
+            max-width: 95%;
+            max-height: 95%;
+            border: 2px solid #ddd;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.2);
+            border-radius: 8px;
+        }
+
+        footer {
+            height: 40px;
+            background: linear-gradient(90deg, #007bff, #28a745, #ff5722, #673ab7, #00bcd4, #007bff);
+            background-size: 600% 600%;
+            animation: fadeBackground 30s infinite;
+            text-align: center;
+            color: white;
+            font-size: 14px;
+            line-height: 40px;
+        }
+
+        @keyframes fadeBackground {
+            0% {
+                background-position: 0% 50%;
+            }
+            50% {
+                background-position: 100% 50%;
+            }
+            100% {
+                background-position: 0% 50%;
+            }
+        }
+    </style>
+</head>
+<body>
+    <header>
+        Easy Crab
+    </header>
+    <div id="container">
+        <div id="logs">
+            <h2>Logs</h2>
+            <ul id="log-list"></ul>
+        </div>
+        <div id="map">
+            <img id="map-image" src="" alt="Mapa no disponible">
+        </div>
+    </div>
+    <footer>
+        EC Central - Actualización en tiempo real
+    </footer>
+
+    <script>
+        const socket = io("http://localhost:3001");
+
+        // Mostrar logs
+        const logList = document.getElementById("log-list");
+        socket.on("new_log", (message) => {
+            const logItem = document.createElement("li");
+            logItem.textContent = message;
+            logList.appendChild(logItem);
+
+            // Hacer scroll automático al final
+            logList.scrollTop = logList.scrollHeight;
+        });
+
+        // Actualizar el mapa
+        const mapImage = document.getElementById("map-image");
+        socket.on("update_map", (base64Image) => {
+            if (base64Image) {
+                mapImage.src = base64Image;
+            } else {
+                console.error("Mapa no recibido en el cliente.");
+            }
+        });
+
+        // Manejo de errores
+        socket.on("connect_error", (error) => {
+            console.error("Error de conexión con el servidor:", error);
+        });
+    </script>
+</body>
+</html>

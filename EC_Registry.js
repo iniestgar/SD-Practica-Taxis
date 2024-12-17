@@ -8,12 +8,22 @@ const mysql = require('mysql');
 const { v4: uuidv4 } = require('uuid'); // Para generar tokens únicos
 const cors = require('cors');
 
-// Configuración de la conexión a la base de datos MySQL
+const minimist = require('minimist');
+
+const args = minimist(process.argv.slice(2));
+
+// Si no se pasan argumentos, asumir valores por defecto
+const dbHost = args.db_host || 'localhost';
+const dbUser = args.db_user || 'root';
+const dbPassword = args.db_password || 'hola';
+const dbName = args.db_name || 'SD_MYSQL';
+
+// Conectar a la base de datos con estos valores
 const connection = mysql.createConnection({
-  host: 'localhost',
-  user: 'root',
-  password: '6633',
-  database: 'sd_bbdd',
+  host: dbHost,
+  user: dbUser,
+  password: dbPassword,
+  database: dbName,
 });
 
 // Conectar a la base de datos
