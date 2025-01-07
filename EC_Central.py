@@ -14,6 +14,7 @@ import requests
 import warnings
 warnings.filterwarnings('ignore', message='Unverified HTTPS request') #Para evitar warnings de certificados no verificados como en el caso de la API de EC_CTC
 import io
+import atexit
 from datetime import datetime
 
 
@@ -160,6 +161,52 @@ class EC_Central:
         finally:
             connstream.close()
 
+    def enviar_mensaje_desconexion(self, id_taxi):
+        """Envía un mensaje de desconexión al taxi especificado."""
+        if id_taxi in self.tokens_taxis:
+            token = self.tokens_taxis[id_taxi]['token']
+            clave_cifrado = self.tokens_taxis[id_taxi]['clave_cifrado']
+            fernet = Fernet(clave_cifrado.encode('utf-8'))
+            mensaje = json.dumps({"tipo": "desconexión"}).encode('utf-8')
+            mensaje_cifrado = fernet.encrypt(mensaje)
+            mensaje_final = f"{token}|".encode('utf-8') + mensaje_cifrado
+            self.producer.send('desconexión', mensaje_final)
+            print(f"Mensaje de desconexión enviado al taxi {id_taxi}.")
+
+    def desconectar_taxi(self, id_taxi):
+        """Desconecta el taxi con el ID proporcionado."""
+        if id_taxi in self.estados_taxis:
+            self.estados_taxis[id_taxi] = (False, False, 1, 1)  # Volver a la posición 1,1
+            self.eliminarTokens(id_taxi)
+            self.enviar_mensaje_desconexion(id_taxi)
+            print(f"Taxi {id_taxi} desconectado y vuelto a la posición (1, 1).")
+        else:
+            print(f"Taxi {id_taxi} no encontrado.")
+
+    def solicitar_desconexion_taxi(self):
+        """Solicita el ID de un taxi para desconectarlo."""
+        while True:
+            id_taxi = input("Introduce el ID del taxi a desconectar: ")
+            self.desconectar_taxi(id_taxi)
+
+    #CUando la central desconecte un taxi se borrara su token 
+    def eliminarTokens(self, id_taxi=None, borrar_todos=False):
+        """Elimina los tokens y claves de cifrado de un taxi específico o de todos los taxis."""
+        if borrar_todos:
+            self.tokens_taxis.clear()
+            id_taxis = [id_taxi for id_taxi, _ in self.estados_taxis.items()]
+            #Borrar todos los tokens de los taxis en la base de datos en cada id del taxi
+            for id_taxi in id_taxis:
+                self.cursor.execute("UPDATE Taxis SET token = NULL WHERE id_taxi = %s", (id_taxi,))
+            
+        else:
+            if id_taxi == None:
+                print("No se ha introducido un id_taxi")
+                return
+            token_borrar = [token for token, datos in self.tokens_taxis.items() if datos['id_taxi'] == id_taxi]
+            del self.tokens_taxis[token_borrar]
+            #Borrar el token del taxi en la base de datos
+            self.cursor.execute("UPDATE Taxis SET token = NULL WHERE id_taxi = %s", (id_taxi,))
 
     def procesar_estado_taxi(self, mensaje):
         try:
@@ -183,12 +230,24 @@ class EC_Central:
 
             # Obtener id_taxi y clave_cifrado desde tokens_taxis usando el token
             datos_taxi = self.tokens_taxis.get(token)
-            if not datos_taxi:
-                self.log(f"No se encontró el token {token} en tokens_taxis.")
-                return
 
             id_taxi = datos_taxi['id_taxi']
             clave_cifrado = datos_taxi['clave_cifrado']
+            #Si id_taxi es None hay que buscar que taxi falta entre los que estan en self.estado_taxis
+            if id_taxi == None:
+                for id_taxi_buscar, estado in self.estados_taxis.items():
+                    self.cursor.execute("SELECT token FROM Taxis WHERE id_taxi = %s", (id_taxi_buscar,))
+                    result = self.cursor.fetchone()
+                    #Si no se ha encontrado el id_taxi en result
+                    if not result:
+                        #Eliminar taxi de self.estados_taxis y self.tokens_taxis
+                        del self.estados_taxis[id_taxi_buscar]
+                        del self.tokens_taxis[token]
+                return
+
+            if not datos_taxi:
+                self.log(f"No se encontró el token {token} en tokens_taxis.")
+                return
 
             # Descifrar el mensaje
             fernet = Fernet(clave_cifrado.encode('utf-8'))
@@ -503,7 +562,7 @@ class EC_Central:
     def enviar_datos_APICENTRAL(self):
         """Envia los datos de los taxis a la API Central."""
         # URL de la API Central
-        url = "https://localhost:5000/api/taxis"
+        url = "https://localhost:3001/api/taxis"
         # Cabecera de la petición
         headers = {
             "Content-Type": "application/json"
@@ -538,8 +597,6 @@ class EC_Central:
             solicitud_cliente = mensaje.value.decode('utf-8')
             self.procesar_solicitud_cliente(solicitud_cliente)
 
-    import ssl  # Asegúrate de tener esta importación
-
     def iniciar(self):
         """Inicia el servidor de sockets y los consumidores de Kafka en hilos separados."""
         # Iniciar los consumidores de Kafka
@@ -551,11 +608,8 @@ class EC_Central:
         hilo_señal_desconectar_taxi.start()"""
 
         #Consulta a las API_REST de API_CENTRAL
-        hilo_API_CENTRAL = threading.Thread(target=self.check_traffic, daemon=True)
+        #hilo_API_CENTRAL = threading.Thread(target=self.check_traffic, daemon=True)
 
-        #Consulta a las API_REST de EC_CTC
-        hilo_temperatura = threading.Thread(target=self.check_traffic, daemon=True)
-        hilo_temperatura.start()
         # Crear contexto SSL
         context = ssl.create_default_context(ssl.Purpose.CLIENT_AUTH)
         context.load_cert_chain(certfile='cert.pem', keyfile='key.pem')  # Asegúrate de tener los certificados
@@ -586,6 +640,11 @@ class EC_Central:
             self.log("---------------------------------------")
             time.sleep(10)  # Espera 10 segundos antes de imprimir de nuevo
 
+def realizar_accion_al_cerrar(central):
+    """Borrar todos los tokens de los taxis al cerrar el servidor."""
+    print("Eliminación de todos los tokens de la base de datos y cierre de la conexión.")
+    central.eliminarTokens(borrar_todos=True)
+    central.conn.close()
 
 # Ejecutar el servidor con IP, Puerto y archivo de localizaciones pasados por consola
 if __name__ == "__main__":
@@ -604,6 +663,9 @@ if __name__ == "__main__":
     # Crear instancia de EC_Central con IP, Puerto, archivo de localizaciones, IP y puerto de Kafka
     central = EC_Central(ip, puerto, archivo_localizaciones, ip_kafka, puerto_kafka, ip_city_traffic, puerto_city_traffic)
 
+    # Registrar la función para cerrar el servidor al finalizar
+    atexit.register(lambda: realizar_accion_al_cerrar(central))
+
     # Mostrar localizaciones antes de iniciar el servidor
     print("Localizaciones cargadas desde el archivo:")
     central.mostrar_localizaciones()
@@ -615,3 +677,4 @@ if __name__ == "__main__":
     # Iniciar el servidor y el mapa de manera concurrente
     threading.Thread(target=central.iniciar, daemon=True).start()
     central.mapa.ejecutar()  # Ejecutar el mapa en el hilo principal
+    threading.Thread(target=central.solicitar_desconexion_taxi, daemon=True).start()

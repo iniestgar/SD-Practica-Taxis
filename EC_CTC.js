@@ -37,7 +37,7 @@ function promptCity() {
 }
 
 // Crear un agente HTTPS que ignore los errores de verificación del certificado
-https.Agent({
+const httpsAgent = new https.Agent({
     rejectUnauthorized: false,
     requestCert: true
 });

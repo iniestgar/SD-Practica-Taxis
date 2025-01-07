@@ -29,7 +29,7 @@ app.use(express.static(path.join(__dirname, '../front-end')));
 
 // Ruta para servir EC.html
 app.get('/EC.html', (req, res) => {
-    res.sendFile(path.join(__dirname, '../../SD-Practica-Taxis-main/SD_2/EC.html'));
+    res.sendFile(path.join(__dirname, 'EC.html'));
 });
 
 // Evento de conexión de Socket.IO

@@ -2,20 +2,18 @@
 
 :: Iniciar el servidor API central Node.js en el puerto 3001
 echo Iniciando el servidor API central Node.js en el puerto 3001...
-cd /d C:\SD2\SD-Practica-Taxis-main\central-api
 start cmd /k "node server.js"
 timeout /t 3
 
 :: Iniciar el servidor EC_CTC en el puerto 4000
 echo Iniciando el servidor EC_CTC en el puerto 4000...
-cd /d C:\SD2\SD-Practica-Taxis-main\SD_3\SD_2
 start cmd /k "node EC_CTC.js"
 timeout /t 6
 
-cd /d C:\SD2\SD-Practica-Taxis-main\SD_3\SD_2
+
 :: Iniciar el servidor EC_Central
 echo Iniciando el servidor EC_Central...
-start cmd /k "python EC_Central.py 127.0.0.1 9090 EC_locations.json 127.0.0.1 9092"
+start cmd /k "python EC_Central.py 127.0.0.1 9090 EC_locations.json 127.0.0.1 9092 127.0.0.1 4000"
 timeout /t 4
 
 :: Iniciar el servidor EC_Registry
