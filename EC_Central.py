@@ -671,7 +671,7 @@ if __name__ == "__main__":
     central.mostrar_localizaciones()
 
      # Iniciar la consulta de clima al servidor CTC
-    url_ctc = "http://localhost:4000/city-traffic"  # Asegúrate de usar http
+    url_ctc = f"http://{ip_city_traffic}:{puerto_city_traffic}/city-traffic"  # Asegúrate de usar http
     central.iniciar_consulta_clima(url_ctc)
 
     # Iniciar el servidor y el mapa de manera concurrente
