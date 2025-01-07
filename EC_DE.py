@@ -434,7 +434,8 @@ class EC_DE:
                 # Manejar incidencia climática
                 if datos.get("tipo") == "desconexion":
                     self.taxi_activo = False
-                    
+                    self.coordenada_x = 1
+                    self.coordenada_y = 1
                     print(f"Taxi {self.id_taxi}: Se ha desconectado de la central.")
                     break
             except Exception as e:
@@ -465,6 +466,7 @@ class EC_DE:
                 if datos.get("tipo") == "incidencia_climatologica":
                     print("Taxi volviendo a base")
                     self.mover_hacia(1,1)
+                    print("Taxi ya esta en la base (1,1)")
                     self.incidencia_climatica = datos["incidencia"]
                     print(f"Taxi {self.id_taxi}: Incidencia climática {'detectada' if self.incidencia_climatica else 'resuelta'}.")
 
