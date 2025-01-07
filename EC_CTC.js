@@ -4,11 +4,14 @@ const axios = require('axios');
 const readline = require('readline');
 const https = require('https');
 
+const args = minimist(process.argv.slice(2));
+
 // Configuración de la API de OpenWeather
 const OPENWEATHER_API_KEY = 'bfb5244f957c4c091acad44290dad571'; // API key de OpenWeather
 const OPENWEATHER_URL = 'https://api.openweathermap.org/data/2.5/weather';
 
 // Configuración del servidor
+const IP = args.ip
 const PORT = 4000;
 const CERT_PATH = "CertificadoEC_CTC/certEC_CTC.pem"; // Ruta del certificado autofirmado
 
@@ -74,7 +77,7 @@ app.get('/city-traffic', async (req, res) => {
 });
 
 // Iniciar el servidor HTTP
-app.listen(PORT, () => {
-    console.log(`Servidor EC_CTC escuchando en http://localhost:${PORT}`);
+app.listen(PORT,IP, () => {
+    console.log(`Servidor EC_CTC escuchando en http://${IP}:${PORT}`);
     promptCity(); // Pedir la ciudad por consola
 });
