@@ -17,6 +17,7 @@ const dbHost = args.db_host || 'localhost';
 const dbUser = args.db_user || 'root';
 const dbPassword = args.db_password || 'hola';
 const dbName = args.db_name || 'SD_MYSQL';
+const IP = args.IP;
 
 // Conectar a la base de datos con estos valores
 const connection = mysql.createConnection({
@@ -159,6 +160,6 @@ const sslOptions = {
 
 // Iniciar el servidor HTTPS
 const port = 3000;
-https.createServer(sslOptions, app).listen(port, () => {
-  console.log(`Servidor EC_Registry corriendo en https://localhost:${port}`);
+https.createServer(sslOptions, app).listen(port,IP, () => {
+  console.log(`Servidor EC_Registry corriendo en https://${IP}:${port}`);
 });
