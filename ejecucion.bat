@@ -7,7 +7,7 @@ timeout /t 3
 
 :: Iniciar el servidor EC_CTC en el puerto 4000
 echo Iniciando el servidor EC_CTC en el puerto 4000...
-start cmd /k "node EC_CTC.js"
+start cmd /k "node EC_CTC.js 172.20.243.111"
 timeout /t 6
 
 
@@ -18,7 +18,7 @@ timeout /t 4
 
 :: Iniciar el servidor EC_Registry
 echo Iniciando el servidor EC_Registry...
-start cmd /k "node EC_Registry.js --db_host=localhost --db_user=root --db_password=hola --db_name=SD_MYSQL"
+start cmd /k "node EC_Registry.js --db_host=localhost --db_user=root --db_password=root --db_name=SD_MYSQL --ip=172.20.243.111"
 timeout /t 1
 
 :: Iniciar los taxis y sensores
@@ -27,7 +27,7 @@ start cmd /k "python EC_DE.py 127.0.0.1 9090 127.0.0.1 3000 9093 127.0.0.1 9092 
 timeout /t 1
 
 echo Iniciando el sensor EC_S 1 para taxi 1...
-start cmd /k "python EC_S.py 127.0.0.1 9093"
+start cmd /k "python EC_S.py 172.20.243.111 9093"
 timeout /t 1
 
 echo Iniciando el taxi EC_DE 2...
