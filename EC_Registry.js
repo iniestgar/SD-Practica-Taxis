@@ -15,7 +15,7 @@ const args = minimist(process.argv.slice(2));
 // Si no se pasan argumentos, asumir valores por defecto
 const dbHost = args.db_host || 'localhost';
 const dbUser = args.db_user || 'root';
-const dbPassword = args.db_password || 'hola';
+const dbPassword = args.db_password || 'root';
 const dbName = args.db_name || 'SD_MYSQL';
 const IP = args.IP;
 
