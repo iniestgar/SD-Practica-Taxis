@@ -16,6 +16,7 @@ warnings.filterwarnings('ignore', message='Unverified HTTPS request') #Para evit
 import io
 import atexit
 from datetime import datetime
+import signal
 
 
 class EC_Central:
@@ -44,6 +45,13 @@ class EC_Central:
         )
         self.cursor = self.conn.cursor()
 
+        # Registrar limpieza y señales
+        atexit.register(self.manejar_cierre)
+        signal.signal(signal.SIGINT, self.manejar_cierre)
+        signal.signal(signal.SIGTERM, self.manejar_cierre)
+        # Registro para cierres normales
+        atexit.register(self.manejar_cierre)
+
         # Iniciar hilo para imprimir el estado de los taxis cada 10 segundos
         threading.Thread(target=self.imprimir_estado_periodico, daemon=True).start()
 
@@ -66,6 +74,37 @@ class EC_Central:
         """Imprime el mensaje en la consola y lo envía al front-end."""
         print(mensaje)
         self.enviar_log(mensaje)
+
+    def manejar_cierre(self, signal=None, frame=None):
+        """Maneja el cierre del programa limpiando recursos y cerrando conexiones."""
+        try:
+            # Log del inicio del cierre
+            self.log("Iniciando cierre de EC_Central...")
+            
+            # Limpiar los tokens de la base de datos
+            self.limpiar_tokens()
+            self.log("Tokens eliminados correctamente.")
+            # Cerrar la conexión con la base de datos
+            if self.conn.is_connected():
+                self.conn.close()
+                self.log("Conexión a la base de datos cerrada correctamente.")
+        except Exception as e:
+            # Registrar cualquier error durante el cierre
+            print(f"Error durante el cierre: {e}")
+            self.log(f"Error durante el cierre: {e}")
+        finally:
+            # Terminar el programa
+            self.log("Cierre de EC_Central completado.")
+            sys.exit(0)
+    
+    def limpiar_tokens(self):
+        """Limpia tokens en la base de datos al cerrar."""
+        try:
+            self.cursor.execute("UPDATE Taxis SET token = NULL")
+            self.conn.commit()
+            self.log("Tokens limpiados al cerrar la central.")
+        except Exception as e:
+            print(f"Error al limpiar tokens: {e}")
 
 
     def leer_fichero_localizaciones(self, fichero):

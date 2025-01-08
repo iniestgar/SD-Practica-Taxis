@@ -440,6 +440,41 @@ class EC_DE:
             except Exception as e:
                 print(f"Error al procesar mensaje de desconexión: {e}")
 
+        def autenticar_taxi_existente(self):
+            """Autenticar un taxi ya existente en la base de datos de la central."""
+            # Solicitar el ID del taxi
+            id_taxi = input("Ingrese el ID del taxi existente: ")
+            self.id_taxi = id_taxi  # Guardar el ID proporcionado por el usuario
+            context = ssl.create_default_context()
+            context.load_verify_locations("cert.pem")  # Cargar certificado para la conexión
+            context.check_hostname = True
+            context.verify_mode = ssl.CERT_REQUIRED
+            # Crear conexión con la central
+            cliente = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            conn = context.wrap_socket(cliente, server_hostname=self.ip_servidor)
+            conn.connect((self.ip_servidor, self.puerto_servidor))
+            # Enviar solicitud de autenticación como taxi existente
+            mensaje_autenticacion = f"AUTENTICAR {id_taxi}"
+            conn.send(mensaje_autenticacion.encode())
+            # Recibir respuesta de la central
+            respuesta = conn.recv(4096).decode()
+            try:
+                datos = json.loads(respuesta)
+                if "token" in datos and "clave" in datos:
+                    self.token = datos['token']
+                    self.clave_cifrado = datos['clave'].encode('utf-8')
+                    self.autenticado = True
+                    print(f"Autenticado correctamente. Token recibido: {self.token}")
+                else:
+                    print("Error en la autenticación. Respuesta inesperada:", respuesta)
+            except json.JSONDecodeError:
+                print(f"Error al decodificar la respuesta de autenticación: {respuesta}")
+            finally:
+                conn.close()
+            # Iniciar envío de estado si la autenticación fue exitosa
+            if self.autenticado:
+                self.iniciar_envio_estado_periodico_en_hilo()
+
     def escuchar_incidencias(self, tema='incidenciaClima'):
         """Escucha mensajes de incidencia climática desde Kafka."""
         consumer = KafkaConsumer(tema, bootstrap_servers=f'{self.ip_kafka}:{self.puerto_kafka}', auto_offset_reset='latest')
@@ -477,8 +512,6 @@ class EC_DE:
 
 
 
-
-
 # Menú para el taxi
 def menu():
     import sys
@@ -497,7 +530,7 @@ def menu():
 
     taxi = EC_DE(ip_servidor, puerto_servidor, ip_registry, puerto_registry, puerto_local, ip_kafka, puerto_kafka, auto_mode=modo_auto)
 
-    if not modo_auto:
+     if not modo_auto:
         while True:
             print("\nMenú Taxi:")
             print("1. Darse de alta")
@@ -505,7 +538,8 @@ def menu():
             print("3. Obtener información del taxi")
             print("4. Actualizar información del taxi")
             print("5. Eliminar taxi del registro")
-            print("6. Salir")
+            print("6. Utilizar taxi de regitrado")
+            print("7. Salir")
             opcion = input("Elige una opción: ")
 
             if opcion == '1':
@@ -519,6 +553,8 @@ def menu():
             elif opcion == '5':
                 taxi.eliminar_taxi()
             elif opcion == '6':
+                taxi.autenticar_taxi_existente()
+            elif opcion == '7':
                 print("Saliendo...")
                 break
             else:
