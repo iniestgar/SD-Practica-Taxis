@@ -88,16 +88,18 @@ class EC_DE:
             print("Debe darse de alta en el registro antes de autenticarse.")
             return  # No puede autenticarse sin estar dado de alta
 
-        context = ssl.create_default_context()
-        context.load_verify_locations("cert.pem")  # Cargar el certificado de la CA o el cert autofirmado de la central
-        context.check_hostname = True
-        context.verify_mode = ssl.CERT_REQUIRED  # Requerir verificación del certificado del servidor
+        #context = ssl.create_default_context()
+        #context.load_verify_locations("cert.pem")  # Cargar el certificado de la CA o el cert autofirmado de la central
+        #context.check_hostname = True
+        #context.verify_mode = ssl.CERT_REQUIRED  # Requerir verificación del certificado del servidor
+        cliente = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        conn = cliente.connect((self.ip_servidor, self.puerto_servidor))
 
 
         # Crear socket y envolverlo con SSL
-        cliente = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        conn = context.wrap_socket(cliente, server_hostname=self.ip_servidor)
-        conn.connect((self.ip_servidor, self.puerto_servidor))
+        #cliente = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        #conn = context.wrap_socket(cliente, server_hostname=self.ip_servidor)
+        #conn.connect((self.ip_servidor, self.puerto_servidor))
 
         # Enviar el mensaje "ALTA {id_taxi}" para solicitar autenticación
         mensaje_alta = f"ALTA {self.id_taxi}"
