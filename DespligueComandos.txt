@@ -1,3 +1,10 @@
-pip install kafka-python==2.0.0 request mysql-connector-python cryptography
-npm install express requests body-parser mysql  socket.io multer https minimist
+pip install kafka-python==2.0.0 requests mysql-connector-python cryptography
+npm install express request body-parser mysql  socket.io multer https minimist 
 Node: https://nodejs.org/en/download/prebuilt-installer
+
+ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY 'root';
+flush privileges;
+
+Resolver incompatibilidad kafkapython: C:\Users\alumno\AppData\Roaming\Python\Python312\site-packages\kafka\codec.py y añadir estas lineas por las que hay:
+from kafka.vendor import six
+from six.moves import range
