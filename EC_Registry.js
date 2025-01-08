@@ -17,7 +17,7 @@ const dbHost = args.db_host || 'localhost';
 const dbUser = args.db_user || 'root';
 const dbPassword = args.db_password || 'root';
 const dbName = args.db_name || 'SD_MYSQL';
-const IP = args.IP;
+const IP = args.ip || '127.0.0.1' ;
 
 // Conectar a la base de datos con estos valores
 const connection = mysql.createConnection({

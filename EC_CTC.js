@@ -3,6 +3,7 @@ const app = express();
 const axios = require('axios');
 const readline = require('readline');
 const https = require('https');
+const minimist = require('minimist');
 
 const args = minimist(process.argv.slice(2));
 

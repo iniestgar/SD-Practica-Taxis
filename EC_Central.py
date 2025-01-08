@@ -39,7 +39,7 @@ class EC_Central:
         self.conn = mysql.connector.connect(
             host="localhost",
             user="root",
-            password="hola",
+            password="root",
             database="sd_mysql"
         )
         self.cursor = self.conn.cursor()
