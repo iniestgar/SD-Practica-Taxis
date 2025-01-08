@@ -32,7 +32,6 @@ class EC_DE:
         self.autenticado = False
         self.id_cliente = None  # Inicializa cliente asignado como None
         self.auto_mode = auto_mode
-        self.clave_cifrado = None
 
         # Inicialización de Kafka
         self.ip_kafka = ip_kafka
@@ -45,7 +44,6 @@ class EC_DE:
 
         # Iniciar hilo para escuchar incidencias
         threading.Thread(target=self.escuchar_incidencias, daemon=True).start()
-        threading.Thread(target=self.escuchar_desconexión, daemon=True).start()
 
         # Si está en modo automático, darse de alta y autenticarse automáticamente
         if self.auto_mode:
@@ -59,7 +57,7 @@ class EC_DE:
             return
 
         url = f'https://{self.ip_registry}:{self.puerto_registry}/taxis'
-        cert_path = 'cert.pem'  # Si estás verificando el certificado
+
         # Solicitar el id_taxi al usuario
         id_taxi = input("Ingrese el ID del taxi: ")
 
@@ -70,7 +68,7 @@ class EC_DE:
         }
 
         try:
-            response = requests.post(url, json=data, cert=('cert.pem', 'key.pem'), verify=cert_path)  # O verify=cert_path
+            response = requests.post(url, json=data, verify=False)
             if response.status_code == 201:
                 self.id_taxi = id_taxi
                 print(f"Taxi registrado con ID: {self.id_taxi}")
@@ -90,28 +88,25 @@ class EC_DE:
             print("Debe darse de alta en el registro antes de autenticarse.")
             return  # No puede autenticarse sin estar dado de alta
 
+        context = ssl.create_default_context()
+        context.load_verify_locations("cert.pem")  # Cargar el certificado de la CA o el cert autofirmado de la central
+        context.check_hostname = True
+        context.verify_mode = ssl.CERT_REQUIRED  # Requerir verificación del certificado del servidor
+
+
+        # Crear socket y envolverlo con SSL
+        cliente = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        conn = context.wrap_socket(cliente, server_hostname=self.ip_servidor)
+        conn.connect((self.ip_servidor, self.puerto_servidor))
+
+        # Enviar el mensaje "ALTA {id_taxi}" para solicitar autenticación
+        mensaje_alta = f"ALTA {self.id_taxi}"
+        conn.send(mensaje_alta.encode())
+
+        # Recibir respuesta de la central
+        respuesta = conn.recv(4096).decode()
+
         try:
-            #context = ssl.create_default_context()
-            context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
-            context.load_verify_locations("cert.pem")  # Cargar el certificado de la CA o el cert autofirmado de la central
-            #context.check_hostname = True
-            #context.verify_mode = ssl.CERT_REQUIRED  # Requerir verificación del certificado del servidor
-
-
-            # Crear socket y envolverlo con SSL
-            cliente = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            #conn = context.wrap_socket(cliente, server_hostname=self.ip_servidor)
-            conn = context.wrap_socket(cliente,server_hostname=self.ip_servidor)
-            conn.connect((self.ip_servidor, self.puerto_servidor))
-
-            # Enviar el mensaje "ALTA {id_taxi}" para solicitar autenticación
-            mensaje_alta = f"ALTA {self.id_taxi}"
-            conn.send(mensaje_alta.encode())
-
-            # Recibir respuesta de la central
-            respuesta = conn.recv(4096).decode()
-
-        
             # Intentar decodificar la respuesta como JSON
             datos = json.loads(respuesta)
             self.token = datos['token']
@@ -128,9 +123,7 @@ class EC_DE:
             self.iniciar_envio_estado_periodico_en_hilo()
 
         except json.JSONDecodeError:
-            print(f"Error en la extracción de datos: {respuesta}")
-        except Exception as e:
-            print(f"Error en la conexión con la central: {e}")  
+            print(f"Error en la autenticación: {respuesta}")
 
         conn.close()
 
@@ -144,7 +137,7 @@ class EC_DE:
         cert_path = 'cert.pem'  # Si estás verificando el certificado
 
         try:
-            response = requests.get(url, verify=cert_path)  # O verify=cert_path
+            response = requests.get(url, verify=False)  # O verify=cert_path
             if response.status_code == 200:
                 taxi_info = response.json()
                 print("Información del taxi:", taxi_info)
@@ -170,7 +163,7 @@ class EC_DE:
         }
 
         try:
-            response = requests.put(url, json=data, verify=cert_path)  # O verify=cert_path
+            response = requests.put(url, json=data, verify=False)  # O verify=cert_path
             if response.status_code == 200:
                 print("Información del taxi actualizada correctamente.")
             else:
@@ -184,23 +177,25 @@ class EC_DE:
             return
 
         url = f'https://{self.ip_registry}:{self.puerto_registry}/taxis/{self.id_taxi}'
-        cert_path = 'cert.pem' 
+        cert_path = 'cert.pem'  # Si estás verificando el certificado
 
         confirmacion = input("¿Estás seguro de que deseas eliminar este taxi del registro? (s/n): ")
-        if confirmacion.lower() == 's':
-            try:
-                response = requests.delete(url, verify=cert_path)  # O verify=cert_path
-                if response.status_code == 200:
-                    print("Taxi eliminado correctamente del registro.")
-                    self.id_taxi = None
-                    self.token = None
-                    self.autenticado = False
-                else:
-                    print(f"Error al eliminar el taxi: {response.status_code} - {response.text}")
-            except requests.exceptions.RequestException as e:
-                print(f"Error de conexión con EC_Registry: {e}")
-        else:
+        if confirmacion.lower() != 's':
             return
+
+        try:
+            response = requests.delete(url, verify=False)  # O verify=cert_path
+            if response.status_code == 200:
+                print("Taxi eliminado correctamente del registro.")
+                self.id_taxi = None
+                self.token = None
+                self.autenticado = False
+            else:
+                print(f"Error al eliminar el taxi: {response.status_code} - {response.text}")
+        except requests.exceptions.RequestException as e:
+            print(f"Error de conexión con EC_Registry: {e}")
+
+    
 
 
 
@@ -284,9 +279,6 @@ class EC_DE:
                 print(f"Error en escuchar_senales: {e}")
 
 
-
-            
-                
     def escuchar_asignacion_cliente(self, tema='asignacionCliente'):
         """Escucha el topic de Kafka para recibir asignaciones de clientes."""
         consumer = KafkaConsumer(tema, bootstrap_servers=f'{self.ip_kafka}:{self.puerto_kafka}', auto_offset_reset='latest')
@@ -358,7 +350,6 @@ class EC_DE:
             # Movimiento hacia el cliente
             self.mover_hacia(cliente_x, cliente_y)
             print(f"Taxi {self.id_taxi} ha recogido al cliente.")
-            self.notificar_recogida_cliente(self.id_cliente)  # Notificar recogida
 
             # Recorrer todos los destinos secuencialmente
             for destino in destinos:
@@ -374,13 +365,6 @@ class EC_DE:
 
         except ValueError as e:
             print(f"Error al procesar las coordenadas: {e}")
-
-    def notificar_recogida_cliente(self, id_cliente):
-        """Notifica la recogida de un cliente a la central usando Kafka."""
-        mensaje = {"tipo": "recogida_cliente", "id_cliente": id_cliente}
-        self.producer.send('recogidaCliente', json.dumps(mensaje).encode('utf-8'))
-        self.producer.flush()
-        print(f"Notificado recogida del cliente {id_cliente} a la central.")
 
 
     def mover_hacia(self, objetivo_x, objetivo_y):
@@ -410,71 +394,6 @@ class EC_DE:
 
         print(f"Taxi {self.id_taxi} ha llegado a la posición: ({self.coordenada_x}, {self.coordenada_y})")
 
-    #Modulo de desconexión y vuelta al inicio
-    def escuchar_desconexión(self,tema='desconexion'):
-        consumer = KafkaConsumer(tema, bootstrap_servers=f'{self.ip_kafka}:{self.puerto_kafka}', auto_offset_reset='latest')
-
-        for mensaje in consumer:
-            try:
-                # Separar token y mensaje cifrado
-                partes = mensaje.value.split(b'|', 1)
-                if len(partes) < 2:
-                    print("Mensaje mal formado: no se encontró el separador '|'")
-                    continue
-
-                token_recibido, mensaje_cifrado = partes
-                if token_recibido.decode('utf-8') != self.token:
-                    continue  # El mensaje no es para este taxi
-
-                # Descifrar el mensaje
-                fernet = Fernet(self.clave_cifrado)
-                mensaje_descifrado = fernet.decrypt(mensaje_cifrado).decode('utf-8')
-                datos = json.loads(mensaje_descifrado)
-
-                # Manejar incidencia climática
-                if datos.get("tipo") == "desconexion":
-                    self.taxi_activo = False
-                    self.mover_hacia(1,1)
-                    print(f"Taxi {self.id_taxi}: Se ha desconectado de la central.")
-                    break
-            except Exception as e:
-                print(f"Error al procesar mensaje de desconexión: {e}")
-
-        def autenticar_taxi_existente(self):
-            """Autenticar un taxi ya existente en la base de datos de la central."""
-            # Solicitar el ID del taxi
-            id_taxi = input("Ingrese el ID del taxi existente: ")
-            self.id_taxi = id_taxi  # Guardar el ID proporcionado por el usuario
-            context = ssl.create_default_context()
-            context.load_verify_locations("cert.pem")  # Cargar certificado para la conexión
-            context.check_hostname = True
-            context.verify_mode = ssl.CERT_REQUIRED
-            # Crear conexión con la central
-            cliente = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            conn = context.wrap_socket(cliente, server_hostname=self.ip_servidor)
-            conn.connect((self.ip_servidor, self.puerto_servidor))
-            # Enviar solicitud de autenticación como taxi existente
-            mensaje_autenticacion = f"AUTENTICAR {id_taxi}"
-            conn.send(mensaje_autenticacion.encode())
-            # Recibir respuesta de la central
-            respuesta = conn.recv(4096).decode()
-            try:
-                datos = json.loads(respuesta)
-                if "token" in datos and "clave" in datos:
-                    self.token = datos['token']
-                    self.clave_cifrado = datos['clave'].encode('utf-8')
-                    self.autenticado = True
-                    print(f"Autenticado correctamente. Token recibido: {self.token}")
-                else:
-                    print("Error en la autenticación. Respuesta inesperada:", respuesta)
-            except json.JSONDecodeError:
-                print(f"Error al decodificar la respuesta de autenticación: {respuesta}")
-            finally:
-                conn.close()
-            # Iniciar envío de estado si la autenticación fue exitosa
-            if self.autenticado:
-                self.iniciar_envio_estado_periodico_en_hilo()
-
     def escuchar_incidencias(self, tema='incidenciaClima'):
         """Escucha mensajes de incidencia climática desde Kafka."""
         consumer = KafkaConsumer(tema, bootstrap_servers=f'{self.ip_kafka}:{self.puerto_kafka}', auto_offset_reset='latest')
@@ -498,9 +417,6 @@ class EC_DE:
 
                 # Manejar incidencia climática
                 if datos.get("tipo") == "incidencia_climatologica":
-                    print("Taxi volviendo a base")
-                    self.mover_hacia(1,1)
-                    print("Taxi ya esta en la base (1,1)")
                     self.incidencia_climatica = datos["incidencia"]
                     print(f"Taxi {self.id_taxi}: Incidencia climática {'detectada' if self.incidencia_climatica else 'resuelta'}.")
 
@@ -510,6 +426,47 @@ class EC_DE:
             except Exception as e:
                 print(f"Error al procesar mensaje de incidencia: {e}")
 
+    def autenticar_taxi_existente(self):
+        """Autenticar un taxi ya existente en la base de datos de la central."""
+        # Solicitar el ID del taxi
+        id_taxi = input("Ingrese el ID del taxi existente: ")
+
+        self.id_taxi = id_taxi  # Guardar el ID proporcionado por el usuario
+
+        context = ssl.create_default_context()
+        context.load_verify_locations("cert.pem")  # Cargar certificado para la conexión
+        context.check_hostname = True
+        context.verify_mode = ssl.CERT_REQUIRED
+
+        # Crear conexión con la central
+        cliente = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        conn = context.wrap_socket(cliente, server_hostname=self.ip_servidor)
+        conn.connect((self.ip_servidor, self.puerto_servidor))
+
+        # Enviar solicitud de autenticación como taxi existente
+        mensaje_autenticacion = f"AUTENTICAR {id_taxi}"
+        conn.send(mensaje_autenticacion.encode())
+
+        # Recibir respuesta de la central
+        respuesta = conn.recv(4096).decode()
+
+        try:
+            datos = json.loads(respuesta)
+            if "token" in datos and "clave" in datos:
+                self.token = datos['token']
+                self.clave_cifrado = datos['clave'].encode('utf-8')
+                self.autenticado = True
+                print(f"Autenticado correctamente. Token recibido: {self.token}")
+            else:
+                print("Error en la autenticación. Respuesta inesperada:", respuesta)
+        except json.JSONDecodeError:
+            print(f"Error al decodificar la respuesta de autenticación: {respuesta}")
+        finally:
+            conn.close()
+
+        # Iniciar envío de estado si la autenticación fue exitosa
+        if self.autenticado:
+            self.iniciar_envio_estado_periodico_en_hilo()
 
 
 # Menú para el taxi
@@ -530,7 +487,7 @@ def menu():
 
     taxi = EC_DE(ip_servidor, puerto_servidor, ip_registry, puerto_registry, puerto_local, ip_kafka, puerto_kafka, auto_mode=modo_auto)
 
-     if not modo_auto:
+    if not modo_auto:
         while True:
             print("\nMenú Taxi:")
             print("1. Darse de alta")
