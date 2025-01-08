@@ -7,6 +7,10 @@ const cors = require('cors');
 const path = require('path');
 const multer = require('multer'); // Importa multer para manejar archivos
 const fs = require('fs'); // Importa fs para manejar archivos
+const minimist = require('minimist')
+const args = minimist(process.argv.slice(2));
+
+IP = args.ip || 127.0.0.1
 
 // Configuración de multer
 const upload = multer({ dest: 'uploads/' }); // Directorio temporal para guardar los archivos
@@ -79,6 +83,6 @@ app.post('/map', upload.single('map'), (req, res) => {
 
 // Iniciar el servidor en el puerto 3001
 const PORT = process.env.PORT || 3001;
-server.listen(PORT, () => {
+server.listen(PORT,IP, () => {
     console.log(`Servidor Node.js corriendo en http://localhost:${PORT}`);
 });
